@@ -1,0 +1,13 @@
+CompileFlags:
+    Add: [
+        "-isystem/opt/homebrew/include",
+        "-isystem/Users/struc/dev/other/imgui",
+        "-isystem/usr/local/include",
+        "-Wall",
+        "-Wextra",
+        "-Wno-unused-function",
+        "-Wno-unused-parameter",
+        "-Wno-unused-variable",
+    ]
+Diagnostics:
+    UnusedIncludes: None
