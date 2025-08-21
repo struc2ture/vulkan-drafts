@@ -1,0 +1,5 @@
+- Surface
+- Physical device (hardcoded)
+- Find device's graphics queue with present support
+- Create logical device
+- Get queue handle of the graphics queue family
