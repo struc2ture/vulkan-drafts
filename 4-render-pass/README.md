@@ -1,0 +1,3 @@
+- Create an image view for each swapchain image
+- Create a render pass
+- Create a framebuffer for each swapchain image

@@ -151,11 +151,93 @@ int main()
     vkGetSwapchainImagesKHR(vk_device, vk_swapchain, &actual_image_count, vk_swapchain_images.data());
     assert(vk_image_count == actual_image_count);
 
+    // Image views
+    std::vector<VkImageView> vk_image_views(vk_image_count);
+    for (uint32_t i = 0; i < vk_image_count; i++)
+    {
+        VkImageViewCreateInfo view_create_info = {};
+        view_create_info.sType = VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO;
+        view_create_info.image = vk_swapchain_images[i];
+        view_create_info.viewType = VK_IMAGE_VIEW_TYPE_2D;
+        view_create_info.format = vk_surface_format.format;
+        view_create_info.components = {};
+        view_create_info.components.r = VK_COMPONENT_SWIZZLE_IDENTITY;
+        view_create_info.components.g = VK_COMPONENT_SWIZZLE_IDENTITY;
+        view_create_info.components.b = VK_COMPONENT_SWIZZLE_IDENTITY;
+        view_create_info.components.a = VK_COMPONENT_SWIZZLE_IDENTITY;
+        view_create_info.subresourceRange = {};
+        view_create_info.subresourceRange.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
+        view_create_info.subresourceRange.baseMipLevel = 0;
+        view_create_info.subresourceRange.levelCount = 1;
+        view_create_info.subresourceRange.baseArrayLayer = 0;
+        view_create_info.subresourceRange.layerCount = 1;
+
+        result = vkCreateImageView(vk_device, &view_create_info, NULL, &vk_image_views[i]);
+        if (result != VK_SUCCESS) fatal("Failed to create image view");
+    }
+
+    // Render pass
+    VkAttachmentDescription color_attachment_description = {};
+    color_attachment_description.format = vk_surface_format.format;
+    color_attachment_description.samples = VK_SAMPLE_COUNT_1_BIT;
+    color_attachment_description.loadOp = VK_ATTACHMENT_LOAD_OP_CLEAR;
+    color_attachment_description.storeOp = VK_ATTACHMENT_STORE_OP_STORE;
+    color_attachment_description.initialLayout = VK_IMAGE_LAYOUT_UNDEFINED;
+    color_attachment_description.finalLayout = VK_IMAGE_LAYOUT_PRESENT_SRC_KHR;
+
+    VkAttachmentReference color_attachment_reference = {};
+    color_attachment_reference.attachment = 0;
+    color_attachment_reference.layout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
+
+    VkSubpassDescription subpass_description = {};
+    subpass_description.pipelineBindPoint = VK_PIPELINE_BIND_POINT_GRAPHICS;
+    subpass_description.colorAttachmentCount = 1;
+    subpass_description.pColorAttachments = &color_attachment_reference;
+
+    VkRenderPassCreateInfo render_pass_create_info = {};
+    render_pass_create_info.sType = VK_STRUCTURE_TYPE_RENDER_PASS_CREATE_INFO;
+    render_pass_create_info.attachmentCount = 1;
+    render_pass_create_info.pAttachments = &color_attachment_description;
+    render_pass_create_info.subpassCount = 1;
+    render_pass_create_info.pSubpasses = &subpass_description;
+
+    VkRenderPass vk_render_pass;
+    result = vkCreateRenderPass(vk_device, &render_pass_create_info, NULL, &vk_render_pass);
+    if (result != VK_SUCCESS) fatal("Failed to create render pass");
+
+    // Framebuffers
+    std::vector<VkFramebuffer> vk_framebuffers(vk_image_count);
+    for (uint32_t i = 0; i < vk_image_count; i++)
+    {
+        VkImageView attachments[] = { vk_image_views[i] };
+
+        VkFramebufferCreateInfo framebuffer_create_info = {};
+        framebuffer_create_info.sType = VK_STRUCTURE_TYPE_FRAMEBUFFER_CREATE_INFO;
+        framebuffer_create_info.renderPass = vk_render_pass;
+        framebuffer_create_info.attachmentCount = 1;
+        framebuffer_create_info.pAttachments = attachments;
+        framebuffer_create_info.width = vk_swapchain_extent.width;
+        framebuffer_create_info.height = vk_swapchain_extent.height;
+        framebuffer_create_info.layers = 1;
+
+        result = vkCreateFramebuffer(vk_device, &framebuffer_create_info, NULL, &vk_framebuffers[i]);
+        if (result != VK_SUCCESS) fatal("Failed to create framebuffer");
+    }
+
     while (!glfwWindowShouldClose(window))
     {
         glfwPollEvents();
     }
 
+    for (auto framebuffer: vk_framebuffers)
+    {
+        vkDestroyFramebuffer(vk_device, framebuffer, nullptr);
+    }
+    vkDestroyRenderPass(vk_device, vk_render_pass, NULL);
+    for (auto image_view: vk_image_views)
+    {
+        vkDestroyImageView(vk_device, image_view, nullptr);
+    }
     vkDestroySwapchainKHR(vk_device, vk_swapchain, NULL);
     vkDestroyDevice(vk_device, NULL);
     vkDestroySurfaceKHR(vk_instance, vk_surface, NULL);
