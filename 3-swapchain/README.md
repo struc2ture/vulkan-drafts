@@ -1,0 +1,7 @@
+- Query physical device-surface capabilities
+- Select format and color space from available ones in physical device-surface
+- Assert the first one is VK_FORMAT_B8G8R8A8_UNORM, VK_COLOR_SPACE_SRGB_NONLINEAR_KHR for now
+- Extent. Swapchain must be recreated upon window resize
+- Must be 2 images for now. Assert the driver didn't give more.
+- Present mode: VK_PRESENT_MODE_FIFO_KHR for now (vsync)
+- Get swapchain images (must be 2)

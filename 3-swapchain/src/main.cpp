@@ -5,11 +5,20 @@
 #include <GLFW/glfw3.h>
 #include <vulkan/vulkan_core.h>
 
+#include "vk_enum_str.cpp"
+
 #define fatal(FMT, ...) do { \
     fprintf(stderr, "[FATAL: %s:%d:%s]: " FMT "\n", \
         __FILE__, __LINE__, __func__, ##__VA_ARGS__); \
     __builtin_debugtrap(); \
     exit(EXIT_FAILURE); \
+} while (0)
+
+#define assert(cond) do { \
+    if (!(cond)) { \
+        __builtin_debugtrap(); \
+        exit(EXIT_FAILURE); \
+    } \
 } while (0)
 
 int main()
@@ -50,18 +59,12 @@ int main()
 
     VkInstance vk_instance;
     VkResult result = vkCreateInstance(&create_info, NULL, &vk_instance);
-    if (result != VK_SUCCESS)
-    {
-        fatal("Failed to create instance");
-    }
+    if (result != VK_SUCCESS) fatal("Failed to create instance");
 
     // Surface
     VkSurfaceKHR vk_surface;
     result = glfwCreateWindowSurface(vk_instance, window, NULL, &vk_surface);
-    if (result != VK_SUCCESS)
-    {
-        fatal("Failed to create surface");
-    }
+    if (result != VK_SUCCESS) fatal("Failed to create surface");
 
     // Physical device
     uint32_t count;
@@ -104,20 +107,70 @@ int main()
 
     VkDevice vk_device;
     result = vkCreateDevice(vk_physical_device, &device_create_info, nullptr, &vk_device);
-    if (result != VK_SUCCESS)
-    {
-        fatal("Failed to create logical device");
-    }
+    if (result != VK_SUCCESS) fatal("Failed to create logical device");
 
     // Get queue handle of the graphics queue family
     VkQueue vk_graphics_queue;
     vkGetDeviceQueue(vk_device,vk_graphics_queue_family_index, 0, &vk_graphics_queue);
+
+    // Swapchain
+    VkSurfaceCapabilitiesKHR capabilities;
+    vkGetPhysicalDeviceSurfaceCapabilitiesKHR(vk_physical_device, vk_surface, &capabilities);
+
+    uint32_t format_count;
+    vkGetPhysicalDeviceSurfaceFormatsKHR(vk_physical_device, vk_surface, &format_count, NULL);
+    std::vector<VkSurfaceFormatKHR> formats(format_count);
+    vkGetPhysicalDeviceSurfaceFormatsKHR(vk_physical_device, vk_surface, &format_count, formats.data());
+    printf("Available physical device-surface formats:\n");
+    for (uint32_t i = 0; i < format_count; i++)
+    {
+        auto format = formats[i];
+        printf("formats[%u]: %s, %s\n", i, get_VkFormat_str(format.format), get_VkColorSpaceKHR_str(format.colorSpace));
+    }
+
+    VkSurfaceFormatKHR vk_surface_format = formats[0];
+    printf("Using format 0: %s, %s\n", get_VkFormat_str(vk_surface_format.format), get_VkColorSpaceKHR_str(vk_surface_format.colorSpace));
+    assert(vk_surface_format.format == VK_FORMAT_B8G8R8A8_UNORM && vk_surface_format.colorSpace == VK_COLOR_SPACE_SRGB_NONLINEAR_KHR);
+
+    VkExtent2D vk_swapchain_extent = capabilities.currentExtent;
+    printf("Swapchain extent: %d, %d\n", vk_swapchain_extent.width, vk_swapchain_extent.height);
+
+    printf("Swapchain transform: %s\n", get_VkColorSpaceKHR_str(capabilities.currentTransform));
+
+    uint32_t vk_image_count = 2;
+
+    VkSwapchainCreateInfoKHR swapchain_create_info = {};
+    swapchain_create_info.sType = VK_STRUCTURE_TYPE_SWAPCHAIN_CREATE_INFO_KHR;
+    swapchain_create_info.surface = vk_surface;
+    swapchain_create_info.minImageCount = vk_image_count;
+    swapchain_create_info.imageFormat = vk_surface_format.format;
+    swapchain_create_info.imageColorSpace = vk_surface_format.colorSpace;
+    swapchain_create_info.imageExtent = vk_swapchain_extent;
+    swapchain_create_info.imageArrayLayers = 1;
+    swapchain_create_info.imageUsage = VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT;
+    swapchain_create_info.imageSharingMode = VK_SHARING_MODE_EXCLUSIVE;
+    swapchain_create_info.preTransform = capabilities.currentTransform;
+    swapchain_create_info.compositeAlpha = VK_COMPOSITE_ALPHA_OPAQUE_BIT_KHR;
+    swapchain_create_info.presentMode = VK_PRESENT_MODE_FIFO_KHR; // vsync
+    swapchain_create_info.clipped = VK_TRUE;
+
+    VkSwapchainKHR vk_swapchain;
+    result = vkCreateSwapchainKHR(vk_device, &swapchain_create_info, NULL, &vk_swapchain);
+    if (result != VK_SUCCESS) fatal("Failed to create swapchain");
+
+    // Get swapchain images
+    uint32_t actual_image_count;
+    vkGetSwapchainImagesKHR(vk_device, vk_swapchain, &actual_image_count, NULL);
+    std::vector<VkImage> vk_swapchain_images(actual_image_count);
+    vkGetSwapchainImagesKHR(vk_device, vk_swapchain, &actual_image_count, vk_swapchain_images.data());
+    assert(vk_image_count == actual_image_count);
 
     while (!glfwWindowShouldClose(window))
     {
         glfwPollEvents();
     }
 
+    vkDestroySwapchainKHR(vk_device, vk_swapchain, NULL);
     vkDestroyDevice(vk_device, NULL);
     vkDestroySurfaceKHR(vk_instance, vk_surface, NULL);
     vkDestroyInstance(vk_instance, NULL);
