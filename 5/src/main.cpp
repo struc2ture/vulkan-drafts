@@ -19,6 +19,37 @@
     } \
 } while (0)
 
+struct Vertex
+{
+    float x, y;
+    float r, g, b;
+};
+
+VkShaderModule create_shader_module(VkDevice device, const char *path)
+{
+    FILE *file = fopen(path, "rb");
+    assert(file);
+    fseek(file, 0, SEEK_END);
+    long size = ftell(file);
+    rewind(file);
+    char* buffer = (char *)malloc(size);
+    assert(buffer);
+    fread(buffer, 1, size, file);
+    fclose(file);
+
+    VkShaderModuleCreateInfo shader_module_create_info = {};
+    shader_module_create_info.sType = VK_STRUCTURE_TYPE_SHADER_MODULE_CREATE_INFO;
+    shader_module_create_info.codeSize = (size_t)size;
+    shader_module_create_info.pCode = (uint32_t *)buffer;
+
+    VkShaderModule module;
+    VkResult result = vkCreateShaderModule(device, &shader_module_create_info, NULL, &module);
+    if (result != VK_SUCCESS) fatal("Failed to create shader module");
+
+    free(buffer);
+    return module;
+}
+
 int main()
 {
     int width = 1000;
@@ -224,24 +255,127 @@ int main()
         if (result != VK_SUCCESS) fatal("Failed to create framebuffer");
     }
 
+    ////////////////////////////////////////////
+
+    // Graphics pipeline
+    VkShaderModule vk_vert_shader_module = create_shader_module(vk_device, "bin/shaders/tri.vert.spv");
+    VkShaderModule vk_frag_shader_module = create_shader_module(vk_device, "bin/shaders/tri.frag.spv");
+
+    VkPipelineShaderStageCreateInfo pipeline_shader_stage_create_infos[2] = {};
+    pipeline_shader_stage_create_infos[0].sType = VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO;
+    pipeline_shader_stage_create_infos[0].stage = VK_SHADER_STAGE_VERTEX_BIT;
+    pipeline_shader_stage_create_infos[0].module = vk_vert_shader_module;
+    pipeline_shader_stage_create_infos[0].pName = "main";
+    pipeline_shader_stage_create_infos[1].sType = VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO;
+    pipeline_shader_stage_create_infos[1].stage = VK_SHADER_STAGE_FRAGMENT_BIT;
+    pipeline_shader_stage_create_infos[1].module = vk_frag_shader_module;
+    pipeline_shader_stage_create_infos[1].pName = "main";
+
+    VkVertexInputBindingDescription vertex_input_binding_description = {};
+    vertex_input_binding_description.binding = 0;
+    vertex_input_binding_description.stride = sizeof(Vertex);
+    vertex_input_binding_description.inputRate = VK_VERTEX_INPUT_RATE_VERTEX;
+
+    std::vector<VkVertexInputAttributeDescription> vertex_input_attribute_descriptions(2);
+    vertex_input_attribute_descriptions[0].location = 0;
+    vertex_input_attribute_descriptions[0].binding = 0;
+    vertex_input_attribute_descriptions[0].format = VK_FORMAT_R32G32_SFLOAT;
+    vertex_input_attribute_descriptions[0].offset = offsetof(Vertex, x);
+    vertex_input_attribute_descriptions[1].location = 1;
+    vertex_input_attribute_descriptions[1].binding = 0;
+    vertex_input_attribute_descriptions[1].format = VK_FORMAT_R32G32B32_SFLOAT;
+    vertex_input_attribute_descriptions[1].offset = offsetof(Vertex, r);
+
+    VkPipelineVertexInputStateCreateInfo pipeline_vertex_input_state_create_info = {};
+    pipeline_vertex_input_state_create_info.sType = VK_STRUCTURE_TYPE_PIPELINE_VERTEX_INPUT_STATE_CREATE_INFO;
+    pipeline_vertex_input_state_create_info.vertexBindingDescriptionCount = 1;
+    pipeline_vertex_input_state_create_info.pVertexBindingDescriptions = &vertex_input_binding_description;
+    pipeline_vertex_input_state_create_info.vertexAttributeDescriptionCount = vertex_input_attribute_descriptions.size();
+    pipeline_vertex_input_state_create_info.pVertexAttributeDescriptions = vertex_input_attribute_descriptions.data();
+
+    VkPipelineInputAssemblyStateCreateInfo pipeline_input_assembly_create_info = {};
+    pipeline_input_assembly_create_info.sType = VK_STRUCTURE_TYPE_PIPELINE_INPUT_ASSEMBLY_STATE_CREATE_INFO;
+    pipeline_input_assembly_create_info.topology = VK_PRIMITIVE_TOPOLOGY_TRIANGLE_LIST;
+
+    VkViewport viewport = {0, 0, (float)width, (float)height, 0.0f, 1.0f};
+    VkRect2D scissor = {{0, 0}, {(uint32_t)width, (uint32_t)height}};
+    VkPipelineViewportStateCreateInfo pipeline_viewport_state_create_info = {};
+    pipeline_viewport_state_create_info.sType = VK_STRUCTURE_TYPE_PIPELINE_VIEWPORT_STATE_CREATE_INFO;
+    pipeline_viewport_state_create_info.viewportCount = 1;
+    pipeline_viewport_state_create_info.pViewports = &viewport;
+    pipeline_viewport_state_create_info.scissorCount = 1;
+    pipeline_viewport_state_create_info.pScissors = &scissor;
+
+    VkPipelineRasterizationStateCreateInfo pipeline_rasterization_state_create_info = {};
+    pipeline_rasterization_state_create_info.sType = VK_STRUCTURE_TYPE_PIPELINE_RASTERIZATION_STATE_CREATE_INFO;
+    pipeline_rasterization_state_create_info.polygonMode = VK_POLYGON_MODE_FILL;
+    pipeline_rasterization_state_create_info.lineWidth = 1.0f;
+    pipeline_rasterization_state_create_info.cullMode = VK_CULL_MODE_NONE;
+    pipeline_rasterization_state_create_info.frontFace = VK_FRONT_FACE_COUNTER_CLOCKWISE;
+
+    VkPipelineMultisampleStateCreateInfo pipeline_multisample_state_create_info = {};
+    pipeline_multisample_state_create_info.sType = VK_STRUCTURE_TYPE_PIPELINE_MULTISAMPLE_STATE_CREATE_INFO;
+    pipeline_multisample_state_create_info.rasterizationSamples = VK_SAMPLE_COUNT_1_BIT;
+
+    VkPipelineColorBlendAttachmentState pipeline_color_blend_attachment_state = {};
+    pipeline_color_blend_attachment_state.colorWriteMask = (VK_COLOR_COMPONENT_R_BIT |
+                                                            VK_COLOR_COMPONENT_G_BIT |
+                                                            VK_COLOR_COMPONENT_B_BIT |
+                                                            VK_COLOR_COMPONENT_A_BIT);
+    pipeline_color_blend_attachment_state.blendEnable = VK_FALSE;
+
+    VkPipelineColorBlendStateCreateInfo pipeline_color_blend_state_create_info = {};
+    pipeline_color_blend_state_create_info.sType = VK_STRUCTURE_TYPE_PIPELINE_COLOR_BLEND_STATE_CREATE_INFO;
+    pipeline_color_blend_state_create_info.attachmentCount = 1;
+    pipeline_color_blend_state_create_info.pAttachments = &pipeline_color_blend_attachment_state;
+
+    VkPipelineLayoutCreateInfo pipeline_layout_create_info = {};
+    pipeline_layout_create_info.sType = VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO;
+    VkPipelineLayout vk_pipeline_layout;
+    result = vkCreatePipelineLayout(vk_device, &pipeline_layout_create_info, nullptr, &vk_pipeline_layout);
+    if (result != VK_SUCCESS) fatal("Failed to create pipeline layout");
+    
+    VkGraphicsPipelineCreateInfo graphics_pipeline_create_info = {};
+    graphics_pipeline_create_info.sType = VK_STRUCTURE_TYPE_GRAPHICS_PIPELINE_CREATE_INFO;
+    graphics_pipeline_create_info.stageCount = 2;
+    graphics_pipeline_create_info.pStages = pipeline_shader_stage_create_infos;
+    graphics_pipeline_create_info.pVertexInputState = &pipeline_vertex_input_state_create_info;
+    graphics_pipeline_create_info.pInputAssemblyState = &pipeline_input_assembly_create_info;
+    graphics_pipeline_create_info.pViewportState = &pipeline_viewport_state_create_info;
+    graphics_pipeline_create_info.pRasterizationState = &pipeline_rasterization_state_create_info;
+    graphics_pipeline_create_info.pMultisampleState = &pipeline_multisample_state_create_info;
+    graphics_pipeline_create_info.pColorBlendState = &pipeline_color_blend_state_create_info;
+    graphics_pipeline_create_info.layout = vk_pipeline_layout;
+    graphics_pipeline_create_info.renderPass = vk_render_pass;
+    graphics_pipeline_create_info.subpass = 0;
+    
+    VkPipeline vk_pipeline;
+    result = vkCreateGraphicsPipelines(vk_device, VK_NULL_HANDLE, 1, &graphics_pipeline_create_info, nullptr, &vk_pipeline);
+    if (result != VK_SUCCESS) fatal("Failed to create graphics pipeline");
+
+    vkDestroyShaderModule(vk_device, vk_vert_shader_module, nullptr);
+    vkDestroyShaderModule(vk_device, vk_frag_shader_module, nullptr);
+
     while (!glfwWindowShouldClose(window))
     {
         glfwPollEvents();
     }
 
+    vkDestroyPipeline(vk_device, vk_pipeline, nullptr);
+    vkDestroyPipelineLayout(vk_device, vk_pipeline_layout, nullptr);
     for (auto framebuffer: vk_framebuffers)
     {
         vkDestroyFramebuffer(vk_device, framebuffer, nullptr);
     }
-    vkDestroyRenderPass(vk_device, vk_render_pass, NULL);
+    vkDestroyRenderPass(vk_device, vk_render_pass, nullptr);
     for (auto image_view: vk_image_views)
     {
         vkDestroyImageView(vk_device, image_view, nullptr);
     }
-    vkDestroySwapchainKHR(vk_device, vk_swapchain, NULL);
-    vkDestroyDevice(vk_device, NULL);
-    vkDestroySurfaceKHR(vk_instance, vk_surface, NULL);
-    vkDestroyInstance(vk_instance, NULL);
+    vkDestroySwapchainKHR(vk_device, vk_swapchain, nullptr);
+    vkDestroyDevice(vk_device, nullptr);
+    vkDestroySurfaceKHR(vk_instance, vk_surface, nullptr);
+    vkDestroyInstance(vk_instance, nullptr);
 
     glfwDestroyWindow(window);
     glfwTerminate();

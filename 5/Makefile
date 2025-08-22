@@ -10,5 +10,11 @@ main: bin/main
 debug: bin/main
 	lldb bin/main
 
-bin/main: src/main.cpp
+bin/main: src/main.cpp bin/shaders/tri.vert.spv bin/shaders/tri.frag.spv
 	clang++ $(CFLAGS) $(LFLAGS) src/main.cpp -o bin/main
+
+bin/shaders/tri.vert.spv: src/shaders/tri.vert
+	glslc $< -o $@
+
+bin/shaders/tri.frag.spv: src/shaders/tri.frag
+	glslc $< -o $@

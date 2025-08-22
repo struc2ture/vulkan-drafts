@@ -1,0 +1,3 @@
+- Function to load shaders from spv files
+- Makefile to build shaders using glslc tool
+- Write shaders for a colored triangle
