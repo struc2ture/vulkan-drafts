@@ -1,5 +1,6 @@
 - Surface
 - Physical device (hardcoded)
 - Find device's graphics queue with present support
+- For now it has to be that one queue is both graphics and has present support
 - Create logical device
 - Get queue handle of the graphics queue family
