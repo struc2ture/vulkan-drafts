@@ -50,6 +50,22 @@ VkShaderModule create_shader_module(VkDevice device, const char *path)
     return module;
 }
 
+uint32_t find_memory_type(VkPhysicalDevice physical_device, uint32_t type_filter, VkMemoryPropertyFlags props)
+{
+    VkPhysicalDeviceMemoryProperties mem_props;
+    vkGetPhysicalDeviceMemoryProperties(physical_device, &mem_props);
+    for (uint32_t i = 0; i < mem_props.memoryTypeCount; i++)
+    {
+        if ((type_filter & (1 << i)) &&
+            (mem_props.memoryTypes[i].propertyFlags & props) == props)
+        {
+            return i;
+        }
+    }
+    fatal("Failed to find suitable memory type");
+    return 0;
+}
+
 int main()
 {
     int width = 1000;
@@ -356,11 +372,58 @@ int main()
     vkDestroyShaderModule(vk_device, vk_vert_shader_module, nullptr);
     vkDestroyShaderModule(vk_device, vk_frag_shader_module, nullptr);
 
+    // Vertex buffer
+    const Vertex verts[] = {
+        {  0.0f, -0.5f, 1.0f, 0.0f, 0.0f },
+        {  0.5f,  0.5f, 0.0f, 1.0f, 0.0f },
+        { -0.5f,  0.5f, 0.0f, 0.0f, 1.0f },
+    };
+
+    VkDeviceSize buffer_size = sizeof(verts);
+
+    VkBufferCreateInfo buffer_create_info = {};
+    buffer_create_info.sType = VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO;
+    buffer_create_info.size = buffer_size;
+    buffer_create_info.usage = VK_BUFFER_USAGE_VERTEX_BUFFER_BIT;
+    buffer_create_info.sharingMode = VK_SHARING_MODE_EXCLUSIVE;
+
+    VkBuffer vk_vertex_buffer;
+    result = vkCreateBuffer(vk_device, &buffer_create_info, nullptr, &vk_vertex_buffer);
+    if (result != VK_SUCCESS) fatal("Failed to create vertex buffer");
+
+    // Allocate memory for vertex buffer
+    VkMemoryRequirements memory_requirements;
+    vkGetBufferMemoryRequirements(vk_device, vk_vertex_buffer, &memory_requirements);
+
+    VkMemoryAllocateInfo memory_allocate_info = {};
+    memory_allocate_info.sType = VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO;
+    memory_allocate_info.allocationSize = memory_requirements.size;
+    memory_allocate_info.memoryTypeIndex = find_memory_type(
+        vk_physical_device,
+        memory_requirements.memoryTypeBits,
+        VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT
+    );;
+
+    VkDeviceMemory vk_vertex_buffer_memory;
+    result = vkAllocateMemory(vk_device, &memory_allocate_info, NULL, &vk_vertex_buffer_memory);
+    if (result != VK_SUCCESS) fatal("Failed to allocate memory for vertex buffer");
+
+    result = vkBindBufferMemory(vk_device, vk_vertex_buffer, vk_vertex_buffer_memory, 0);
+    if (result != VK_SUCCESS) fatal("Failed to bind memory to vertex buffer");
+
+    // Upload data to the vertex buffer
+    void *data;
+    vkMapMemory(vk_device, vk_vertex_buffer_memory, 0, buffer_size, 0, &data);
+    memcpy(data, verts, (size_t)buffer_size);
+    vkUnmapMemory(vk_device, vk_vertex_buffer_memory);
+
     while (!glfwWindowShouldClose(window))
     {
         glfwPollEvents();
     }
 
+    vkDestroyBuffer(vk_device, vk_vertex_buffer, NULL);
+    vkFreeMemory(vk_device, vk_vertex_buffer_memory, NULL);
     vkDestroyPipeline(vk_device, vk_pipeline, nullptr);
     vkDestroyPipelineLayout(vk_device, vk_pipeline_layout, nullptr);
     for (auto framebuffer: vk_framebuffers)

@@ -1,0 +1,12 @@
+- Define verts for a triangle (positions + colors)
+- Create generic buffer (VkBufferCreateInfo, vkCreateBuffer --> VkBuffer) with usage = VK_BUFFER_USAGE_VERTEX_BUFFER_BIT, sharing mode = VK_SHARING_MODE_EXCLUSIVE, and specifying the inner/usable size for the data
+- To allocate memory (VkMemoryAllocateInfo, vkAllocateMemory --> VkDeviceMemory), need to specify memory requirements (VkMemoryAllocateInfo) for the created VkBuffer, based on the device. allocationSize = memory_requirements.size
+- Also for allocation need to find suitable memory type:
+    - For physical device
+    - Pick out of suitable memory types specified in the memory_requirements
+    - Pick types that have flags: VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT
+- Bind device memory (VkDeviceMemory) to buffer (VkBuffer)
+- Upload data to device memory bound to the buffer:
+    - Memory map with C pointer void *data
+    - memcpy to the data
+    - Unmap memory
