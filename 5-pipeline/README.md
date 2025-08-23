@@ -1,3 +1,14 @@
 - Function to load shaders from spv files
 - Makefile to build shaders using glslc tool
 - Write shaders for a colored triangle
+- Create pipeline, referencing:
+    - 2 shader stages (VkPipelineShaderStageCreateInfo)
+    - vertex input state (VkPipelineVertexInputStateCreateInfo, including VkVertexInputBindingDescription and 2 VkVertexInputAttributeDescription -- for each input attribute in the shader)
+    - input assembly info (VkPipelineInputAssemblyStateCreateInfo -- choosing topology: VK_PRIMITIVE_TOPOLOGY_TRIANGLE_LIST)
+    - viewport info (VkPipelineViewportStateCreateInfo, including viewport and scissor for window size)
+    - rasterization info (VkPipelineRasterizationStateCreateInfo -- polygon mode = VK_POLYGON_MODE_FILL, line width = 1.0f, cull mode = VK_CULL_MODE_NONE, front face = VK_FRONT_FACE_COUNTER_CLOCKWISE
+    - multisample info (VkPipelineMultisampleStateCreateInfo -- rasterization samples = VK_SAMPLE_COUNT_1_BIT)
+    - color blend info (VkPipelineColorBlendStateCreateInfo -- including 1 attachment - VkPipelineColorBlendAttachmentState, setting colorWriteMask = (RGBA) and blend = false
+    - creating and referencing pipeline layout (VkPipelineLayoutCreateInfo -> vkCreatePipelineLayout; not setting anything in its create info)
+    - references created render pass
+- Can destroy shader modules after pipeline is created
