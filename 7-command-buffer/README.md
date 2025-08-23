@@ -1,0 +1,13 @@
+- Create command pool (VkCommandPoolCreateInfo, vkCreateCommandPool --> VkCommandPool)
+- Create command buffer in that command pool (VkCommandBufferAllocateInfo, vkAllocateCommandBuffers --> VkCommandBuffer)
+- One buffer that will be re-recorded every frame
+    - It has to be re-recorded because each starts a render pass that references a framebuffer -> image view -> swapchain image
+    - Common to have one buffer for each swapchain image to avoid having to re-record it like that.
+- Reset (vkResetCommandBuffer) and re-record the command buffer every frame
+    - vkBeginCommandBuffer and vkEndCommandBuffer
+    - Need to begin render pass if rendering to framebuffers: vkCmdBeginRenderPass and vkCmdEndRenderPass
+    - Need to start render pass for a given framebuffer, no way to predict which swapchain image index will be acquired, so hardcoded to 0 for now.
+    - Actual rendering, inside the render pass:
+        - Bind pipeline (vkCmdBindPipeline)
+        - Bind vertex buffer (vkCmdBindVertexBuffers)
+        - Submit draw call (vkCmdDraw)
