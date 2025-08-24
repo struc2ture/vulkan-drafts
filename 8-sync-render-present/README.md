@@ -1,3 +1,17 @@
 - Create image available and render finished semaphores
+- Semaphores are used for GPU-GPU sync; fences -- GPU-CPU sync
+- In this case I only use semaphores - for GPU-GPU sync. No fences. And vkQueueWaitIdle on present/graphics queue so CPU waits for present being done, hence a vblank, hence input polling at consistent FPS.
 - Every frame:
     - Acquire next swapchain image (vkAcquireNextImageKHR)
+    - vkAcquireNextImageKHR will signal on the image available semaphore
+    - After command buffer is re-recorded for the right image,
+    - Submit command buffer to queue: VkSubmitInfo and vkQueueSubmit
+        - GPU will wait on the image available semaphore before executing the command buffer
+        - GPU will wait for that semaphore before rendering to color attachment by setting pWaitDstStageMask = VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT
+        - When submitted queue is finished executing, it will signal on render finished semaphore
+    - Queue present: VkPresentInfoKHR and vkQueuePresentKHR
+        - GPU will wait on the render finished semaphore before presenting
+        - References swap chain Can present to multiple swapchains at once
+    - CPU-wait until the present queue is idle -- vkQueueWaitIdle
+- Added result checking to every vk call that returns VkResult
+- Disabled window resizing because it causes VK_SUBOPTIMAL_KHR error when presenting -- need to rebuild swapchain for new window size

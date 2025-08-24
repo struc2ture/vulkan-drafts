@@ -73,6 +73,7 @@ int main()
 
     glfwInit();
     glfwWindowHint(GLFW_CLIENT_API, GLFW_NO_API);
+    glfwWindowHint(GLFW_RESIZABLE, GLFW_FALSE);
     GLFWwindow *window = glfwCreateWindow(width, height, "Vulkan", NULL, NULL);
 
     int fb_width, fb_height;
