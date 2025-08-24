@@ -5,6 +5,8 @@
 #include <GLFW/glfw3.h>
 #include <vulkan/vulkan_core.h>
 
+#include "lin_math.hpp"
+
 #define fatal(FMT, ...) do { \
     fprintf(stderr, "[FATAL: %s:%d:%s]: " FMT "\n", \
         __FILE__, __LINE__, __func__, ##__VA_ARGS__); \
@@ -24,12 +26,15 @@
     } \
 } while (0)
 
+#define bp() __builtin_debugtrap()
+
 struct Vertex
 {
     float x, y;
     float r, g, b;
 };
 
+// UNUSED
 struct VulkanState
 {
     VkInstance instance;
@@ -58,6 +63,7 @@ struct VulkanState
     VkSemaphore render_finished_semaphore;
 };
 
+// UNUSED
 static VulkanState g_VulkanState;
 
 struct VulkanBasicallyEverything
@@ -67,6 +73,13 @@ struct VulkanBasicallyEverything
     std::vector<VkImageView> image_views;
     std::vector<VkFramebuffer> framebuffers;
     VkRenderPass render_pass;
+
+    VkBuffer uniform_buffer;
+    VkDeviceMemory uniform_buffer_memory;
+    VkDescriptorSetLayout uniform_buffer_descriptor_set_layout;
+    VkDescriptorPool uniform_buffer_descriptor_pool;
+    VkDescriptorSet uniform_buffer_descriptor_set;
+
     VkPipelineLayout pipeline_layout;
     VkPipeline pipeline;
 
@@ -236,6 +249,107 @@ void create_basically_everything(GLFWwindow *window, VkPhysicalDevice vk_physica
         if (result != VK_SUCCESS) fatal("Failed to create framebuffer");
     }
 
+    // Create uniform buffer for orthographic projection
+    // m4 ortho_proj = m4_identity();
+    // ortho_proj.d[0] = 2.0f;
+    // ortho_proj.d[5] = 1.5f;
+    int w, h;
+    glfwGetWindowSize(window, &w, &h);
+    m4 ortho_proj = m4_proj_ortho(0.0f, w, 0.0f, h, -1.0f, 1.0f);
+    VkDeviceSize vk_uniform_buffer_size = sizeof(ortho_proj);
+
+    VkBufferCreateInfo uniform_buffer_create_info = {};
+    uniform_buffer_create_info.sType = VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO;
+    uniform_buffer_create_info.size = vk_uniform_buffer_size;
+    uniform_buffer_create_info.usage = VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT;
+    uniform_buffer_create_info.sharingMode = VK_SHARING_MODE_EXCLUSIVE;
+
+    result = vkCreateBuffer(vk_device, &uniform_buffer_create_info, nullptr, &g_TempVulkan.uniform_buffer);
+    if (result != VK_SUCCESS) fatal("Failed to create uniform buffer");
+
+    // Allocate memory for uniform buffer
+    VkMemoryRequirements uniform_buffer_memory_requirements;
+    (void)vkGetBufferMemoryRequirements(vk_device, g_TempVulkan.uniform_buffer, &uniform_buffer_memory_requirements);
+
+    VkMemoryAllocateInfo uniform_buffer_memory_allocate_info = {};
+    uniform_buffer_memory_allocate_info.sType = VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO;
+    uniform_buffer_memory_allocate_info.allocationSize = uniform_buffer_memory_requirements.size;
+    uniform_buffer_memory_allocate_info.memoryTypeIndex = find_memory_type(
+        vk_physical_device,
+        uniform_buffer_memory_requirements.memoryTypeBits,
+        VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT
+    );
+
+    result = vkAllocateMemory(vk_device, &uniform_buffer_memory_allocate_info, NULL, &g_TempVulkan.uniform_buffer_memory);
+    if (result != VK_SUCCESS) fatal("Failed to allocate memory for uniform buffer");
+
+    result = vkBindBufferMemory(vk_device, g_TempVulkan.uniform_buffer, g_TempVulkan.uniform_buffer_memory, 0);
+    if (result != VK_SUCCESS) fatal("Failed to bind memory to uniform buffer");
+
+    // Upload data to the uniform buffer
+    void *uniform_data_ptr;
+    result = vkMapMemory(vk_device, g_TempVulkan.uniform_buffer_memory, 0, vk_uniform_buffer_size, 0, &uniform_data_ptr);
+    if (result != VK_SUCCESS) fatal("Failed to map uniform buffer memory");
+    memcpy(uniform_data_ptr, &ortho_proj, (size_t)vk_uniform_buffer_size);
+    (void)vkUnmapMemory(vk_device, g_TempVulkan.uniform_buffer_memory);
+
+    // Descriptor set layout
+    VkDescriptorSetLayoutBinding uniform_buffer_descriptor_set_layout_binding = {};
+    uniform_buffer_descriptor_set_layout_binding.binding = 0;
+    uniform_buffer_descriptor_set_layout_binding.descriptorType = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
+    uniform_buffer_descriptor_set_layout_binding.descriptorCount = 1;
+    uniform_buffer_descriptor_set_layout_binding.stageFlags = VK_SHADER_STAGE_VERTEX_BIT;
+    uniform_buffer_descriptor_set_layout_binding.pImmutableSamplers = NULL;
+
+    VkDescriptorSetLayoutCreateInfo uniform_buffer_descriptor_set_layout_create_info = {};
+    uniform_buffer_descriptor_set_layout_create_info.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO;
+    uniform_buffer_descriptor_set_layout_create_info.bindingCount = 1;
+    uniform_buffer_descriptor_set_layout_create_info.pBindings = &uniform_buffer_descriptor_set_layout_binding;
+
+    result = vkCreateDescriptorSetLayout(vk_device, &uniform_buffer_descriptor_set_layout_create_info, NULL, &g_TempVulkan.uniform_buffer_descriptor_set_layout);
+    if (result != VK_SUCCESS) fatal("Failed to create uniform buffer descriptor set layout");
+
+    // Descriptor pool
+    VkDescriptorPoolSize uniform_buffer_descriptor_pool_size = {};
+    uniform_buffer_descriptor_pool_size.type = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
+    uniform_buffer_descriptor_pool_size.descriptorCount = 1;
+
+    VkDescriptorPoolCreateInfo uniform_buffer_decriptor_pool_create_info = {};
+    uniform_buffer_decriptor_pool_create_info.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO;
+    uniform_buffer_decriptor_pool_create_info.poolSizeCount = 1;
+    uniform_buffer_decriptor_pool_create_info.pPoolSizes = &uniform_buffer_descriptor_pool_size;
+    uniform_buffer_decriptor_pool_create_info.maxSets = 1;
+
+    result = vkCreateDescriptorPool(vk_device, &uniform_buffer_decriptor_pool_create_info, NULL, &g_TempVulkan.uniform_buffer_descriptor_pool);
+    if (result != VK_SUCCESS) fatal("Failed to create uniform buffer descriptor pool");
+
+    // Allocate descriptor sets
+    VkDescriptorSetAllocateInfo uniform_buffer_descriptor_set_allocate_info = {};
+    uniform_buffer_descriptor_set_allocate_info.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO;
+    uniform_buffer_descriptor_set_allocate_info.descriptorPool = g_TempVulkan.uniform_buffer_descriptor_pool;
+    uniform_buffer_descriptor_set_allocate_info.descriptorSetCount = 1;
+    uniform_buffer_descriptor_set_allocate_info.pSetLayouts = &g_TempVulkan.uniform_buffer_descriptor_set_layout;
+
+    result = vkAllocateDescriptorSets(vk_device, &uniform_buffer_descriptor_set_allocate_info, &g_TempVulkan.uniform_buffer_descriptor_set);
+    if (result != VK_SUCCESS) fatal("Failed to allocate uniform buffer descriptor set");
+
+    // Update descriptor sets to point to the uniform buffer
+    VkDescriptorBufferInfo uniform_buffer_descriptor_buffer_info = {};
+    uniform_buffer_descriptor_buffer_info.buffer = g_TempVulkan.uniform_buffer;
+    uniform_buffer_descriptor_buffer_info.offset = 0;
+    uniform_buffer_descriptor_buffer_info.range = vk_uniform_buffer_size;
+
+    VkWriteDescriptorSet uniform_buffer_write_descriptor_set = {};
+    uniform_buffer_write_descriptor_set.sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
+    uniform_buffer_write_descriptor_set.dstSet = g_TempVulkan.uniform_buffer_descriptor_set;
+    uniform_buffer_write_descriptor_set.dstBinding = 0;
+    uniform_buffer_write_descriptor_set.dstArrayElement = 0;
+    uniform_buffer_write_descriptor_set.descriptorType = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
+    uniform_buffer_write_descriptor_set.descriptorCount = 1;
+    uniform_buffer_write_descriptor_set.pBufferInfo = &uniform_buffer_descriptor_buffer_info;
+
+    vkUpdateDescriptorSets(vk_device, 1, &uniform_buffer_write_descriptor_set, 0, NULL);
+
     // Graphics pipeline
     VkShaderModule vk_vert_shader_module = create_shader_module(vk_device, "bin/shaders/tri.vert.spv");
     VkShaderModule vk_frag_shader_module = create_shader_module(vk_device, "bin/shaders/tri.frag.spv");
@@ -312,6 +426,9 @@ void create_basically_everything(GLFWwindow *window, VkPhysicalDevice vk_physica
 
     VkPipelineLayoutCreateInfo pipeline_layout_create_info = {};
     pipeline_layout_create_info.sType = VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO;
+    pipeline_layout_create_info.setLayoutCount = 1;
+    // Reference the uniform buffer descriptor set layout
+    pipeline_layout_create_info.pSetLayouts = &g_TempVulkan.uniform_buffer_descriptor_set_layout;
     result = vkCreatePipelineLayout(vk_device, &pipeline_layout_create_info, nullptr, &g_TempVulkan.pipeline_layout);
     if (result != VK_SUCCESS) fatal("Failed to create pipeline layout");
     
@@ -347,6 +464,12 @@ void create_basically_everything(GLFWwindow *window, VkPhysicalDevice vk_physica
 
 void destroy_basically_everything(VkDevice vk_device)
 {
+    (void)vkDestroyDescriptorPool(vk_device, g_TempVulkan.uniform_buffer_descriptor_pool, NULL);
+    (void)vkDestroyDescriptorSetLayout(vk_device, g_TempVulkan.uniform_buffer_descriptor_set_layout, NULL);
+
+    (void)vkFreeMemory(vk_device, g_TempVulkan.uniform_buffer_memory, NULL);
+    (void)vkDestroyBuffer(vk_device, g_TempVulkan.uniform_buffer, NULL);
+
     (void)vkDestroyPipeline(vk_device, g_TempVulkan.pipeline, nullptr);
     (void)vkDestroyPipelineLayout(vk_device, g_TempVulkan.pipeline_layout, nullptr);
     for (auto framebuffer: g_TempVulkan.framebuffers)
@@ -462,49 +585,59 @@ int main()
     create_basically_everything(window, vk_physical_device, vk_surface, vk_device);
 
     // Vertex buffer
+    // const Vertex verts[] = {
+    //     {  0.0f, -0.5f, 1.0f, 0.0f, 0.0f },
+    //     {  0.5f,  0.5f, 0.0f, 1.0f, 0.0f },
+    //     { -0.5f,  0.5f, 0.0f, 0.0f, 1.0f },
+    // };
+    // const Vertex verts[] = {
+    //     { 150.0f, 100.0f, 1.0f, 0.0f, 0.0f },
+    //     { 100.0f, 200.0f, 0.0f, 1.0f, 0.0f },
+    //     { 200.0f, 200.0f, 0.0f, 0.0f, 1.0f },
+    // };
     const Vertex verts[] = {
-        {  0.0f, -0.5f, 1.0f, 0.0f, 0.0f },
-        {  0.5f,  0.5f, 0.0f, 1.0f, 0.0f },
-        { -0.5f,  0.5f, 0.0f, 0.0f, 1.0f },
+        { 500.0f, 0.0f, 1.0f, 0.0f, 0.0f },
+        { 0.0f, 900.0f, 0.0f, 1.0f, 0.0f },
+        { 1000.0f, 900.0f, 0.0f, 0.0f, 1.0f },
     };
 
-    VkDeviceSize buffer_size = sizeof(verts);
+    VkDeviceSize vertex_buffer_size = sizeof(verts);
 
-    VkBufferCreateInfo buffer_create_info = {};
-    buffer_create_info.sType = VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO;
-    buffer_create_info.size = buffer_size;
-    buffer_create_info.usage = VK_BUFFER_USAGE_VERTEX_BUFFER_BIT;
-    buffer_create_info.sharingMode = VK_SHARING_MODE_EXCLUSIVE;
+    VkBufferCreateInfo vertex_buffer_create_info = {};
+    vertex_buffer_create_info.sType = VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO;
+    vertex_buffer_create_info.size = vertex_buffer_size;
+    vertex_buffer_create_info.usage = VK_BUFFER_USAGE_VERTEX_BUFFER_BIT;
+    vertex_buffer_create_info.sharingMode = VK_SHARING_MODE_EXCLUSIVE;
 
     VkBuffer vk_vertex_buffer;
-    result = vkCreateBuffer(vk_device, &buffer_create_info, nullptr, &vk_vertex_buffer);
+    result = vkCreateBuffer(vk_device, &vertex_buffer_create_info, nullptr, &vk_vertex_buffer);
     if (result != VK_SUCCESS) fatal("Failed to create vertex buffer");
 
     // Allocate memory for vertex buffer
-    VkMemoryRequirements memory_requirements;
-    (void)vkGetBufferMemoryRequirements(vk_device, vk_vertex_buffer, &memory_requirements);
+    VkMemoryRequirements vertex_buffer_memory_requirements;
+    (void)vkGetBufferMemoryRequirements(vk_device, vk_vertex_buffer, &vertex_buffer_memory_requirements);
 
-    VkMemoryAllocateInfo memory_allocate_info = {};
-    memory_allocate_info.sType = VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO;
-    memory_allocate_info.allocationSize = memory_requirements.size;
-    memory_allocate_info.memoryTypeIndex = find_memory_type(
+    VkMemoryAllocateInfo vertex_buffer_memory_allocate_info = {};
+    vertex_buffer_memory_allocate_info.sType = VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO;
+    vertex_buffer_memory_allocate_info.allocationSize = vertex_buffer_memory_requirements.size;
+    vertex_buffer_memory_allocate_info.memoryTypeIndex = find_memory_type(
         vk_physical_device,
-        memory_requirements.memoryTypeBits,
+        vertex_buffer_memory_requirements.memoryTypeBits,
         VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT
     );;
 
     VkDeviceMemory vk_vertex_buffer_memory;
-    result = vkAllocateMemory(vk_device, &memory_allocate_info, NULL, &vk_vertex_buffer_memory);
+    result = vkAllocateMemory(vk_device, &vertex_buffer_memory_allocate_info, NULL, &vk_vertex_buffer_memory);
     if (result != VK_SUCCESS) fatal("Failed to allocate memory for vertex buffer");
 
     result = vkBindBufferMemory(vk_device, vk_vertex_buffer, vk_vertex_buffer_memory, 0);
     if (result != VK_SUCCESS) fatal("Failed to bind memory to vertex buffer");
 
     // Upload data to the vertex buffer
-    void *data;
-    result = vkMapMemory(vk_device, vk_vertex_buffer_memory, 0, buffer_size, 0, &data);
+    void *vertex_buffer_data_ptr;
+    result = vkMapMemory(vk_device, vk_vertex_buffer_memory, 0, vertex_buffer_size, 0, &vertex_buffer_data_ptr);
     if (result != VK_SUCCESS) fatal("Failed to map vertex buffer memory");
-    memcpy(data, verts, (size_t)buffer_size);
+    memcpy(vertex_buffer_data_ptr, verts, (size_t)vertex_buffer_size);
     (void)vkUnmapMemory(vk_device, vk_vertex_buffer_memory);
 
     // Command pool
@@ -539,7 +672,7 @@ int main()
             vkDeviceWaitIdle(vk_device);
             destroy_basically_everything(vk_device);
             create_basically_everything(window, vk_physical_device, vk_surface, vk_device);
-            trace("Recreated everything");
+            trace("Recreated everything. Swapchain extent: %ux%u", g_TempVulkan.swapchain_extent.width, g_TempVulkan.swapchain_extent.height);
             recreate_everything = false;
         }
 
@@ -576,6 +709,15 @@ int main()
         render_pass_begin_info.pClearValues = &clear_value;
         (void)vkCmdBeginRenderPass(vk_command_buffer, &render_pass_begin_info, VK_SUBPASS_CONTENTS_INLINE);
 
+        // Bind descriptor set for uniform buffer
+        vkCmdBindDescriptorSets(
+            vk_command_buffer,
+            VK_PIPELINE_BIND_POINT_GRAPHICS,
+            g_TempVulkan.pipeline_layout,
+            0, // firstSet
+            1, &g_TempVulkan.uniform_buffer_descriptor_set,
+            0, NULL
+        );
         // Bind pipeline that is used for drawing triangle
         (void)vkCmdBindPipeline(vk_command_buffer, VK_PIPELINE_BIND_POINT_GRAPHICS, g_TempVulkan.pipeline);
         VkDeviceSize offsets[] = { 0 };
@@ -625,8 +767,8 @@ int main()
     }
 
     (void)vkDestroyCommandPool(vk_device, vk_command_pool, NULL);
-    (void)vkDestroyBuffer(vk_device, vk_vertex_buffer, NULL);
     (void)vkFreeMemory(vk_device, vk_vertex_buffer_memory, NULL);
+    (void)vkDestroyBuffer(vk_device, vk_vertex_buffer, NULL);
 
     destroy_basically_everything(vk_device);
 

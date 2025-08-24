@@ -1,0 +1,15 @@
+- Introduce lin_math. Just m4 and identity.
+- Create buffer for the uniform. Similar to vertex buffer, but with usage = VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT
+- Upload identity matrix to the uniform buffer
+- Create descriptor set layout
+- Create descriptor pool
+- Allocate descriptor sets
+- Update descriptor sets to point to the uniform buffer
+- Move the code to create_basically_everything, so it gets rebuilt with the swapchain
+    - Not necessary, but just to simplify the sequence, as it will be used when creating the pipeline, which gets recreated with the swapchain
+- Specify the descriptor set layout in pSetLayouts in the pipeline layout
+- Bind the descriptor set in the command buffer every frame, when command buffer is recorded
+- Specify the UBO in the shader, with set = 0, binding = 0, and use it for MVP
+- Test by passing a 2x scale into the mvp ubo, instead of identity
+- Introduce the ortho projection function
+- Modify the triangle verts to be in screen space
