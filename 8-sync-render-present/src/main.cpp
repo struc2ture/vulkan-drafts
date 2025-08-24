@@ -75,6 +75,9 @@ int main()
     glfwWindowHint(GLFW_CLIENT_API, GLFW_NO_API);
     GLFWwindow *window = glfwCreateWindow(width, height, "Vulkan", NULL, NULL);
 
+    int fb_width, fb_height;
+    glfwGetFramebufferSize(window, &fb_width, &fb_height);
+
     // Vulkan Instance
     VkApplicationInfo app_info = {};
     app_info.sType = VK_STRUCTURE_TYPE_APPLICATION_INFO;
@@ -313,8 +316,8 @@ int main()
     pipeline_input_assembly_create_info.sType = VK_STRUCTURE_TYPE_PIPELINE_INPUT_ASSEMBLY_STATE_CREATE_INFO;
     pipeline_input_assembly_create_info.topology = VK_PRIMITIVE_TOPOLOGY_TRIANGLE_LIST;
 
-    VkViewport viewport = {0, 0, (float)width, (float)height, 0.0f, 1.0f};
-    VkRect2D scissor = {{0, 0}, {(uint32_t)width, (uint32_t)height}};
+    VkViewport viewport = {0, 0, (float)fb_width, (float)fb_height, 0.0f, 1.0f};
+    VkRect2D scissor = {{0, 0}, {(uint32_t)fb_width, (uint32_t)fb_height}};
     VkPipelineViewportStateCreateInfo pipeline_viewport_state_create_info = {};
     pipeline_viewport_state_create_info.sType = VK_STRUCTURE_TYPE_PIPELINE_VIEWPORT_STATE_CREATE_INFO;
     pipeline_viewport_state_create_info.viewportCount = 1;
@@ -437,15 +440,31 @@ int main()
     VkCommandBuffer vk_command_buffer;
     vkAllocateCommandBuffers(vk_device, &command_buffer_allocate_info, &vk_command_buffer);
 
+    // Create image available and render finished semaphores
+    VkSemaphoreCreateInfo semaphore_create_info = {};
+    semaphore_create_info.sType = VK_STRUCTURE_TYPE_SEMAPHORE_CREATE_INFO;
+
+    VkSemaphore vk_image_available_semaphore;
+    vkCreateSemaphore(vk_device, &semaphore_create_info, NULL, &vk_image_available_semaphore);
+
+    VkSemaphore vk_render_finished_semaphore;
+    vkCreateSemaphore(vk_device, &semaphore_create_info, NULL, &vk_render_finished_semaphore);
+
     while (!glfwWindowShouldClose(window))
     {
         glfwPollEvents();
 
+        // Acquire next image
+        uint32_t next_image_index;
+        vkAcquireNextImageKHR(vk_device, vk_swapchain, UINT64_MAX, vk_image_available_semaphore, VK_NULL_HANDLE, &next_image_index);
+
+        // Reset and re-record command buffer
         vkResetCommandBuffer(vk_command_buffer, 0);
         VkCommandBufferBeginInfo command_buffer_begin_info = {};
         command_buffer_begin_info.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO;
         vkBeginCommandBuffer(vk_command_buffer, &command_buffer_begin_info);
 
+        // Doing rendering to a framebuffer -- > need render pass
         VkClearValue clear_value = {};
         clear_value.color = { { 1.0f, 0.0f, 0.0f, 1.0f } };
         VkRect2D render_area = {};
@@ -454,21 +473,53 @@ int main()
         VkRenderPassBeginInfo render_pass_begin_info = {};
         render_pass_begin_info.sType = VK_STRUCTURE_TYPE_RENDER_PASS_BEGIN_INFO;
         render_pass_begin_info.renderPass = vk_render_pass;
-        render_pass_begin_info.framebuffer = vk_framebuffers[0]; // TODO: Should be the index that is actually acquired this frame
+        render_pass_begin_info.framebuffer = vk_framebuffers[next_image_index]; // render pass to the right frame buffer index
         render_pass_begin_info.renderArea = render_area;
         render_pass_begin_info.clearValueCount = 1;
         render_pass_begin_info.pClearValues = &clear_value;
         vkCmdBeginRenderPass(vk_command_buffer, &render_pass_begin_info, VK_SUBPASS_CONTENTS_INLINE);
 
+        // Bind pipeline that is used for drawing triangle
         vkCmdBindPipeline(vk_command_buffer, VK_PIPELINE_BIND_POINT_GRAPHICS, vk_pipeline);
         VkDeviceSize offsets[] = { 0 };
+        // Bind vertex buffer that contains triangle vertices
         vkCmdBindVertexBuffers(vk_command_buffer, 0, 1, &vk_vertex_buffer, offsets);
+        // Draw call for 3 vertices
         vkCmdDraw(vk_command_buffer, 3, 1, 0, 0);
 
         vkCmdEndRenderPass(vk_command_buffer);
         vkEndCommandBuffer(vk_command_buffer);
+
+        // Submit command buffer
+        VkPipelineStageFlags wait_destination_stage_mask[] = { VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT }; // wait on the semaphore before executing the color attachment-writing phase
+        VkSubmitInfo submit_info = {};
+        submit_info.sType = VK_STRUCTURE_TYPE_SUBMIT_INFO;
+        submit_info.waitSemaphoreCount = 1;
+        submit_info.pWaitSemaphores = &vk_image_available_semaphore;
+        submit_info.pWaitDstStageMask = wait_destination_stage_mask;
+        submit_info.commandBufferCount = 1;
+        submit_info.pCommandBuffers = &vk_command_buffer;
+        submit_info.signalSemaphoreCount = 1;
+        submit_info.pSignalSemaphores = &vk_render_finished_semaphore;
+
+        vkQueueSubmit(vk_graphics_queue, 1, &submit_info, VK_NULL_HANDLE);
+
+        // Present -- use the same queue as the graphics queue, as it has present support in this case
+        VkPresentInfoKHR present_info = {};
+        present_info.sType = VK_STRUCTURE_TYPE_PRESENT_INFO_KHR;
+        present_info.waitSemaphoreCount = 1;
+        present_info.pWaitSemaphores = &vk_render_finished_semaphore;
+        present_info.swapchainCount = 1;
+        present_info.pSwapchains = &vk_swapchain;
+        present_info.pImageIndices = &next_image_index;
+        vkQueuePresentKHR(vk_graphics_queue, &present_info);
+
+        // Wait until present queue, in this case same as graphics queue, is done -- the image has been presented
+        vkQueueWaitIdle(vk_graphics_queue);
     }
 
+    vkDestroySemaphore(vk_device, vk_image_available_semaphore, NULL);
+    vkDestroySemaphore(vk_device, vk_render_finished_semaphore, NULL);
     vkDestroyCommandPool(vk_device, vk_command_pool, NULL);
     vkDestroyBuffer(vk_device, vk_vertex_buffer, NULL);
     vkFreeMemory(vk_device, vk_vertex_buffer_memory, NULL);

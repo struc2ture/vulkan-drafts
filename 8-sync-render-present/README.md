@@ -1,0 +1,3 @@
+- Create image available and render finished semaphores
+- Every frame:
+    - Acquire next swapchain image (vkAcquireNextImageKHR)
