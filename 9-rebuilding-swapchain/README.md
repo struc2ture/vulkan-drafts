@@ -1,0 +1,29 @@
+- Temporary create_basically_everything and destroy_basically_everything. No abstractions for now.
+- destroy_basically_everything:
+    - Destroy pipeline
+    - Destroy pipeline layout
+    - Destroy framebuffers
+    - Destroy render pass
+    - Destroy image view
+    - Destroy swapchain
+    - Destroy semaphores
+        - Easiest way to "reset" them, as their signals might not have been consumed on a frame with suboptimal error
+- create_basically_everything:
+    - Query physical device capabilities and formats again
+    - Get extent from capabilities
+    - Re-create swapchain
+    - Re-obtain swapchain images
+    - Re-create image views
+    - Re-create render pass
+    - Re-create framebuffers
+    - Re-create pipeline
+        - Query GLFW for framebuffer size to be used for the pipeline viewport
+    - Re-create semaphores
+- vkAcquireNextImageKHR and vkQueuePresentKHR might return VK_SUBOPTIMAL_KHR (not an error) or VK_ERROR_OUT_OF_DATE_KHR (full-on error).
+    - In that case, set recreate_everything flag
+    - continue, so the rest of rendering and logic that frame gets skipped
+- In the beginning of each frame, check recreate_everything flag, if need to:
+    - Wait until device is idle (vkDeviceWaitIdle)
+    - destroy_basically_everything
+    - create_basically_everything
+- Enable window resizing in GLFW again
