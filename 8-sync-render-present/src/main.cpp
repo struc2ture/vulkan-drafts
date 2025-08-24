@@ -116,16 +116,18 @@ int main()
 
     // Physical device
     uint32_t count;
-    vkEnumeratePhysicalDevices(vk_instance, &count, nullptr);
+    result = vkEnumeratePhysicalDevices(vk_instance, &count, nullptr);
+    if (result != VK_SUCCESS) fatal("Failed to enumerate physical devices");
     std::vector<VkPhysicalDevice> physical_devices(count);
-    vkEnumeratePhysicalDevices(vk_instance, &count, physical_devices.data());
+    result = vkEnumeratePhysicalDevices(vk_instance, &count, physical_devices.data());
+    if (result != VK_SUCCESS) fatal("Failed to enumerate physical devices 2");
     VkPhysicalDevice vk_physical_device = physical_devices[0];
 
     // Find graphics queue
     uint32_t vk_graphics_queue_family_index = 0;
-    vkGetPhysicalDeviceQueueFamilyProperties(vk_physical_device, &count, NULL);
+    (void)vkGetPhysicalDeviceQueueFamilyProperties(vk_physical_device, &count, NULL);
     std::vector<VkQueueFamilyProperties> queue_families(count);
-    vkGetPhysicalDeviceQueueFamilyProperties(vk_physical_device, &count, queue_families.data());
+    (void)vkGetPhysicalDeviceQueueFamilyProperties(vk_physical_device, &count, queue_families.data());
     for (size_t i = 0; i < queue_families.size(); i++)
     {
         VkBool32 present_support;
@@ -159,16 +161,19 @@ int main()
 
     // Get queue handle of the graphics queue family
     VkQueue vk_graphics_queue;
-    vkGetDeviceQueue(vk_device,vk_graphics_queue_family_index, 0, &vk_graphics_queue);
+    (void)vkGetDeviceQueue(vk_device,vk_graphics_queue_family_index, 0, &vk_graphics_queue);
 
     // Swapchain
     VkSurfaceCapabilitiesKHR capabilities;
-    vkGetPhysicalDeviceSurfaceCapabilitiesKHR(vk_physical_device, vk_surface, &capabilities);
+    result = vkGetPhysicalDeviceSurfaceCapabilitiesKHR(vk_physical_device, vk_surface, &capabilities);
+    if (result != VK_SUCCESS) fatal("Failed to get physical device-surface capabilities");
 
     uint32_t format_count;
-    vkGetPhysicalDeviceSurfaceFormatsKHR(vk_physical_device, vk_surface, &format_count, NULL);
+    result = vkGetPhysicalDeviceSurfaceFormatsKHR(vk_physical_device, vk_surface, &format_count, NULL);
+    if (result != VK_SUCCESS) fatal("Failed to get physical device-surface formats");
     std::vector<VkSurfaceFormatKHR> formats(format_count);
-    vkGetPhysicalDeviceSurfaceFormatsKHR(vk_physical_device, vk_surface, &format_count, formats.data());
+    result = vkGetPhysicalDeviceSurfaceFormatsKHR(vk_physical_device, vk_surface, &format_count, formats.data());
+    if (result != VK_SUCCESS) fatal("Failed to get physical device-surface formats 2");
 
     VkSurfaceFormatKHR vk_surface_format = formats[0];
     assert(vk_surface_format.format == VK_FORMAT_B8G8R8A8_UNORM && vk_surface_format.colorSpace == VK_COLOR_SPACE_SRGB_NONLINEAR_KHR);
@@ -196,9 +201,11 @@ int main()
 
     // Get swapchain images
     uint32_t actual_image_count;
-    vkGetSwapchainImagesKHR(vk_device, vk_swapchain, &actual_image_count, NULL);
+    result = vkGetSwapchainImagesKHR(vk_device, vk_swapchain, &actual_image_count, NULL);
+    if (result != VK_SUCCESS) fatal("Failed to get swapchain images");
     std::vector<VkImage> vk_swapchain_images(actual_image_count);
-    vkGetSwapchainImagesKHR(vk_device, vk_swapchain, &actual_image_count, vk_swapchain_images.data());
+    result = vkGetSwapchainImagesKHR(vk_device, vk_swapchain, &actual_image_count, vk_swapchain_images.data());
+    if (result != VK_SUCCESS) fatal("Failed to get swapchain images 2");
     assert(vk_image_count == actual_image_count);
 
     // Image views
@@ -372,8 +379,8 @@ int main()
     result = vkCreateGraphicsPipelines(vk_device, VK_NULL_HANDLE, 1, &graphics_pipeline_create_info, nullptr, &vk_pipeline);
     if (result != VK_SUCCESS) fatal("Failed to create graphics pipeline");
 
-    vkDestroyShaderModule(vk_device, vk_vert_shader_module, nullptr);
-    vkDestroyShaderModule(vk_device, vk_frag_shader_module, nullptr);
+    (void)vkDestroyShaderModule(vk_device, vk_vert_shader_module, nullptr);
+    (void)vkDestroyShaderModule(vk_device, vk_frag_shader_module, nullptr);
 
     // Vertex buffer
     const Vertex verts[] = {
@@ -396,7 +403,7 @@ int main()
 
     // Allocate memory for vertex buffer
     VkMemoryRequirements memory_requirements;
-    vkGetBufferMemoryRequirements(vk_device, vk_vertex_buffer, &memory_requirements);
+    (void)vkGetBufferMemoryRequirements(vk_device, vk_vertex_buffer, &memory_requirements);
 
     VkMemoryAllocateInfo memory_allocate_info = {};
     memory_allocate_info.sType = VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO;
@@ -416,9 +423,10 @@ int main()
 
     // Upload data to the vertex buffer
     void *data;
-    vkMapMemory(vk_device, vk_vertex_buffer_memory, 0, buffer_size, 0, &data);
+    result = vkMapMemory(vk_device, vk_vertex_buffer_memory, 0, buffer_size, 0, &data);
+    if (result != VK_SUCCESS) fatal("Failed to map vertex buffer memory");
     memcpy(data, verts, (size_t)buffer_size);
-    vkUnmapMemory(vk_device, vk_vertex_buffer_memory);
+    (void)vkUnmapMemory(vk_device, vk_vertex_buffer_memory);
 
     // Command pool
     VkCommandPoolCreateInfo command_pool_create_info{};
@@ -438,17 +446,20 @@ int main()
     command_buffer_allocate_info.commandBufferCount = 1;
 
     VkCommandBuffer vk_command_buffer;
-    vkAllocateCommandBuffers(vk_device, &command_buffer_allocate_info, &vk_command_buffer);
+    result = vkAllocateCommandBuffers(vk_device, &command_buffer_allocate_info, &vk_command_buffer);
+    if (result != VK_SUCCESS) fatal("Failed to allocate command buffers");
 
     // Create image available and render finished semaphores
     VkSemaphoreCreateInfo semaphore_create_info = {};
     semaphore_create_info.sType = VK_STRUCTURE_TYPE_SEMAPHORE_CREATE_INFO;
 
     VkSemaphore vk_image_available_semaphore;
-    vkCreateSemaphore(vk_device, &semaphore_create_info, NULL, &vk_image_available_semaphore);
+    result = vkCreateSemaphore(vk_device, &semaphore_create_info, NULL, &vk_image_available_semaphore);
+    if (result != VK_SUCCESS) fatal("Failed to create image available semaphore");
 
     VkSemaphore vk_render_finished_semaphore;
     vkCreateSemaphore(vk_device, &semaphore_create_info, NULL, &vk_render_finished_semaphore);
+    if (result != VK_SUCCESS) fatal("Failed to create render finished semaphore");
 
     while (!glfwWindowShouldClose(window))
     {
@@ -456,13 +467,16 @@ int main()
 
         // Acquire next image
         uint32_t next_image_index;
-        vkAcquireNextImageKHR(vk_device, vk_swapchain, UINT64_MAX, vk_image_available_semaphore, VK_NULL_HANDLE, &next_image_index);
+        result = vkAcquireNextImageKHR(vk_device, vk_swapchain, UINT64_MAX, vk_image_available_semaphore, VK_NULL_HANDLE, &next_image_index);
+        if (result != VK_SUCCESS) fatal("Failed to acquire next image");
 
         // Reset and re-record command buffer
         vkResetCommandBuffer(vk_command_buffer, 0);
+        if (result != VK_SUCCESS) fatal("Failed to reset command buffer");
         VkCommandBufferBeginInfo command_buffer_begin_info = {};
         command_buffer_begin_info.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO;
-        vkBeginCommandBuffer(vk_command_buffer, &command_buffer_begin_info);
+        result = vkBeginCommandBuffer(vk_command_buffer, &command_buffer_begin_info);
+        if (result != VK_SUCCESS) fatal("Failed to begin command buffer");
 
         // Doing rendering to a framebuffer -- > need render pass
         VkClearValue clear_value = {};
@@ -477,18 +491,19 @@ int main()
         render_pass_begin_info.renderArea = render_area;
         render_pass_begin_info.clearValueCount = 1;
         render_pass_begin_info.pClearValues = &clear_value;
-        vkCmdBeginRenderPass(vk_command_buffer, &render_pass_begin_info, VK_SUBPASS_CONTENTS_INLINE);
+        (void)vkCmdBeginRenderPass(vk_command_buffer, &render_pass_begin_info, VK_SUBPASS_CONTENTS_INLINE);
 
         // Bind pipeline that is used for drawing triangle
-        vkCmdBindPipeline(vk_command_buffer, VK_PIPELINE_BIND_POINT_GRAPHICS, vk_pipeline);
+        (void)vkCmdBindPipeline(vk_command_buffer, VK_PIPELINE_BIND_POINT_GRAPHICS, vk_pipeline);
         VkDeviceSize offsets[] = { 0 };
         // Bind vertex buffer that contains triangle vertices
-        vkCmdBindVertexBuffers(vk_command_buffer, 0, 1, &vk_vertex_buffer, offsets);
+        (void)vkCmdBindVertexBuffers(vk_command_buffer, 0, 1, &vk_vertex_buffer, offsets);
         // Draw call for 3 vertices
-        vkCmdDraw(vk_command_buffer, 3, 1, 0, 0);
+        (void)vkCmdDraw(vk_command_buffer, 3, 1, 0, 0);
 
-        vkCmdEndRenderPass(vk_command_buffer);
-        vkEndCommandBuffer(vk_command_buffer);
+        (void)vkCmdEndRenderPass(vk_command_buffer);
+        result = vkEndCommandBuffer(vk_command_buffer);
+        if (result != VK_SUCCESS) fatal("Failed to end command buffer");
 
         // Submit command buffer
         VkPipelineStageFlags wait_destination_stage_mask[] = { VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT }; // wait on the semaphore before executing the color attachment-writing phase
@@ -502,7 +517,8 @@ int main()
         submit_info.signalSemaphoreCount = 1;
         submit_info.pSignalSemaphores = &vk_render_finished_semaphore;
 
-        vkQueueSubmit(vk_graphics_queue, 1, &submit_info, VK_NULL_HANDLE);
+        result = vkQueueSubmit(vk_graphics_queue, 1, &submit_info, VK_NULL_HANDLE);
+        if (result != VK_SUCCESS) fatal("Failed to submit command buffer to queue");
 
         // Present -- use the same queue as the graphics queue, as it has present support in this case
         VkPresentInfoKHR present_info = {};
@@ -512,32 +528,34 @@ int main()
         present_info.swapchainCount = 1;
         present_info.pSwapchains = &vk_swapchain;
         present_info.pImageIndices = &next_image_index;
-        vkQueuePresentKHR(vk_graphics_queue, &present_info);
+        result = vkQueuePresentKHR(vk_graphics_queue, &present_info);
+        if (result != VK_SUCCESS) fatal("Error when presenting");
 
         // Wait until present queue, in this case same as graphics queue, is done -- the image has been presented
-        vkQueueWaitIdle(vk_graphics_queue);
+        result = vkQueueWaitIdle(vk_graphics_queue);
+        if (result != VK_SUCCESS) fatal("Failed to wait idle for graphics queue");
     }
 
-    vkDestroySemaphore(vk_device, vk_image_available_semaphore, NULL);
-    vkDestroySemaphore(vk_device, vk_render_finished_semaphore, NULL);
-    vkDestroyCommandPool(vk_device, vk_command_pool, NULL);
-    vkDestroyBuffer(vk_device, vk_vertex_buffer, NULL);
-    vkFreeMemory(vk_device, vk_vertex_buffer_memory, NULL);
-    vkDestroyPipeline(vk_device, vk_pipeline, nullptr);
-    vkDestroyPipelineLayout(vk_device, vk_pipeline_layout, nullptr);
+    (void)vkDestroySemaphore(vk_device, vk_image_available_semaphore, NULL);
+    (void)vkDestroySemaphore(vk_device, vk_render_finished_semaphore, NULL);
+    (void)vkDestroyCommandPool(vk_device, vk_command_pool, NULL);
+    (void)vkDestroyBuffer(vk_device, vk_vertex_buffer, NULL);
+    (void)vkFreeMemory(vk_device, vk_vertex_buffer_memory, NULL);
+    (void)vkDestroyPipeline(vk_device, vk_pipeline, nullptr);
+    (void)vkDestroyPipelineLayout(vk_device, vk_pipeline_layout, nullptr);
     for (auto framebuffer: vk_framebuffers)
     {
-        vkDestroyFramebuffer(vk_device, framebuffer, nullptr);
+        (void)vkDestroyFramebuffer(vk_device, framebuffer, nullptr);
     }
-    vkDestroyRenderPass(vk_device, vk_render_pass, nullptr);
+    (void)vkDestroyRenderPass(vk_device, vk_render_pass, nullptr);
     for (auto image_view: vk_image_views)
     {
-        vkDestroyImageView(vk_device, image_view, nullptr);
+        (void)vkDestroyImageView(vk_device, image_view, nullptr);
     }
-    vkDestroySwapchainKHR(vk_device, vk_swapchain, nullptr);
-    vkDestroyDevice(vk_device, nullptr);
-    vkDestroySurfaceKHR(vk_instance, vk_surface, nullptr);
-    vkDestroyInstance(vk_instance, nullptr);
+    (void)vkDestroySwapchainKHR(vk_device, vk_swapchain, nullptr);
+    (void)vkDestroyDevice(vk_device, nullptr);
+    (void)vkDestroySurfaceKHR(vk_instance, vk_surface, nullptr);
+    (void)vkDestroyInstance(vk_instance, nullptr);
 
     glfwDestroyWindow(window);
     glfwTerminate();
