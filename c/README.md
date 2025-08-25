@@ -1,0 +1,19 @@
+- Introduce stb_image
+- Load a texture with stbi_load
+- Create texture staging buffer
+    - usage = VK_BUFFER_USAGE_TRANSFER_SRC_BIT
+    - Allocate and bind memory: type = VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT
+    - Copy image pixels to that buffer
+- Create an image for the texture
+    - Relation between image and buffer
+    - Allocate and bind memory for the image: type = VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT
+        - Fast gpu memory, not accessible from cpu. Have to copy to it through a staging buffer that is host-visible.
+- Create a command buffer and begin it with VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT usage flag
+- Record the buffer:
+    - transition image layout (vkCmdPipelineBarrier): VK_IMAGE_LAYOUT_UNDEFINED -> VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL
+    - vkCmdCopyBufferToImage from staging buffer to the image
+    - transition image layout (vkCmdPipelineBarrier): VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL -> VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL
+- Submit the command buffer to graphics queue
+- Wait until the graphics queue is idle, for easy synchronization
+    - At this point the pixels have been copied from the staging buffer to the image and the layout is optimal for the shader to sample it
+- Create an image view for the image
