@@ -592,13 +592,13 @@ void create_basically_everything(GLFWwindow *window, VkPhysicalDevice vk_physica
     texture_sampler_descriptor_image_info.sampler = g_TempVulkan.texture_sampler;
 
     VkWriteDescriptorSet texture_sampler_write_descriptor_set = {};
-    uniform_buffer_write_descriptor_set.sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
-    uniform_buffer_write_descriptor_set.dstSet = g_TempVulkan.descriptor_set;
-    uniform_buffer_write_descriptor_set.dstBinding = 1;
-    uniform_buffer_write_descriptor_set.dstArrayElement = 0;
-    uniform_buffer_write_descriptor_set.descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
-    uniform_buffer_write_descriptor_set.descriptorCount = 1;
-    uniform_buffer_write_descriptor_set.pImageInfo = &texture_sampler_descriptor_image_info;
+    texture_sampler_write_descriptor_set.sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
+    texture_sampler_write_descriptor_set.dstSet = g_TempVulkan.descriptor_set;
+    texture_sampler_write_descriptor_set.dstBinding = 1;
+    texture_sampler_write_descriptor_set.dstArrayElement = 0;
+    texture_sampler_write_descriptor_set.descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
+    texture_sampler_write_descriptor_set.descriptorCount = 1;
+    texture_sampler_write_descriptor_set.pImageInfo = &texture_sampler_descriptor_image_info;
 
     vkUpdateDescriptorSets(vk_device, 1, &texture_sampler_write_descriptor_set, 0, NULL);
 
