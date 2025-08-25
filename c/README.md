@@ -17,3 +17,10 @@
 - Wait until the graphics queue is idle, for easy synchronization
     - At this point the pixels have been copied from the staging buffer to the image and the layout is optimal for the shader to sample it
 - Create an image view for the image
+- Create a sampler
+- Rectify the descriptor set layout creation:
+    - One new binding for the sampler, in the same descriptor set layout.
+    - Include one more pool size in descriptor pool, one for the ubo, one for sampler. Still the same pool, just bigger
+    - Still allocate the one descriptor set, but now it includes two bindings in its layout
+    - vkUpdateDescriptorSets: Binding 0 -- UBO; binding 1 -- texture sampler
+- Move the texture loading code to create_basically_everything, because it's again a dependency of desriptor set layout and thus pipeline layout and thus pipeline. For now, it's the easiest, albeit the most brute-force way to do it. Without creating a complicated dependency tree. Will sort this out later.

@@ -80,9 +80,15 @@ struct VulkanBasicallyEverything
 
     VkBuffer uniform_buffer;
     VkDeviceMemory uniform_buffer_memory;
-    VkDescriptorSetLayout uniform_buffer_descriptor_set_layout;
-    VkDescriptorPool uniform_buffer_descriptor_pool;
-    VkDescriptorSet uniform_buffer_descriptor_set;
+
+    VkImage texture_image;
+    VkDeviceMemory texture_image_memory;
+    VkImageView texture_image_view;
+    VkSampler texture_sampler;
+
+    VkDescriptorSetLayout descriptor_set_layout;
+    VkDescriptorPool descriptor_pool;
+    VkDescriptorSet descriptor_set;
 
     VkPipelineLayout pipeline_layout;
     VkPipeline pipeline;
@@ -134,7 +140,7 @@ uint32_t find_memory_type(VkPhysicalDevice physical_device, uint32_t type_filter
     return 0;
 }
 
-void create_basically_everything(GLFWwindow *window, VkPhysicalDevice vk_physical_device, VkSurfaceKHR vk_surface, VkDevice vk_device)
+void create_basically_everything(GLFWwindow *window, VkPhysicalDevice vk_physical_device, VkSurfaceKHR vk_surface, VkDevice vk_device, VkQueue vk_graphics_queue, VkCommandPool vk_command_pool)
 {
     VkResult result;
 
@@ -294,7 +300,224 @@ void create_basically_everything(GLFWwindow *window, VkPhysicalDevice vk_physica
     memcpy(uniform_data_ptr, &ortho_proj, (size_t)vk_uniform_buffer_size);
     (void)vkUnmapMemory(vk_device, g_TempVulkan.uniform_buffer_memory);
 
+    // Texture
+    int tex_w, tex_h, tex_ch;
+    stbi_uc *pixels = stbi_load("res/DUCKS.png", &tex_w, &tex_h, &tex_ch, STBI_rgb_alpha);
+    VkDeviceSize image_size = tex_w * tex_h * 4; // 4 bytes per pixel
+
+    // Texture staging buffer
+    VkBufferCreateInfo texture_staging_buffer_create_info = {};
+    texture_staging_buffer_create_info.sType = VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO;
+    texture_staging_buffer_create_info.size = image_size;
+    texture_staging_buffer_create_info.usage = VK_BUFFER_USAGE_TRANSFER_SRC_BIT;
+    texture_staging_buffer_create_info.sharingMode = VK_SHARING_MODE_EXCLUSIVE;
+
+    VkBuffer vk_texture_staging_buffer;
+    result = vkCreateBuffer(vk_device, &texture_staging_buffer_create_info, nullptr, &vk_texture_staging_buffer);
+    if (result != VK_SUCCESS) fatal("Failed to create texture staging buffer");
+
+    // Allocate memory for texture staging buffer
+    VkMemoryRequirements texture_staging_buffer_memory_requirements;
+    (void)vkGetBufferMemoryRequirements(vk_device, vk_texture_staging_buffer, &texture_staging_buffer_memory_requirements);
+
+    VkMemoryAllocateInfo texture_staging_buffer_memory_allocate_info = {};
+    texture_staging_buffer_memory_allocate_info.sType = VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO;
+    texture_staging_buffer_memory_allocate_info.allocationSize = texture_staging_buffer_memory_requirements.size;
+    texture_staging_buffer_memory_allocate_info.memoryTypeIndex = find_memory_type(
+        vk_physical_device,
+        texture_staging_buffer_memory_requirements.memoryTypeBits,
+        VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT
+    );
+
+    VkDeviceMemory vk_texture_staging_buffer_memory;
+    result = vkAllocateMemory(vk_device, &texture_staging_buffer_memory_allocate_info, NULL, &vk_texture_staging_buffer_memory);
+    if (result != VK_SUCCESS) fatal("Failed to allocate memory for texture staging buffer");
+
+    result = vkBindBufferMemory(vk_device, vk_texture_staging_buffer, vk_texture_staging_buffer_memory, 0);
+    if (result != VK_SUCCESS) fatal("Failed to bind memory to texture staging buffer");
+
+    // Upload image to the texture staging buffer
+    void *texture_staging_buffer_data_ptr;
+    result = vkMapMemory(vk_device, vk_texture_staging_buffer_memory, 0, image_size, 0, &texture_staging_buffer_data_ptr);
+    if (result != VK_SUCCESS) fatal("Failed to map texture staging buffer memory");
+    memcpy(texture_staging_buffer_data_ptr, pixels, (size_t)image_size);
+    (void)vkUnmapMemory(vk_device, vk_texture_staging_buffer_memory);
+
+    // Can free the texture in RAM now
+    free(pixels);
+
+    // Create image for the texture
+    VkImageCreateInfo texture_image_create_info = {};
+    texture_image_create_info.sType = VK_STRUCTURE_TYPE_IMAGE_CREATE_INFO;
+    texture_image_create_info.imageType = VK_IMAGE_TYPE_2D;
+    texture_image_create_info.format = VK_FORMAT_R8G8B8A8_SRGB;
+    texture_image_create_info.extent = { (uint32_t)tex_w, (uint32_t)tex_h, 1 };
+    texture_image_create_info.mipLevels = 1;
+    texture_image_create_info.arrayLayers = 1;
+    texture_image_create_info.samples = VK_SAMPLE_COUNT_1_BIT;
+    texture_image_create_info.tiling = VK_IMAGE_TILING_OPTIMAL;
+    texture_image_create_info.usage = VK_IMAGE_USAGE_TRANSFER_DST_BIT | VK_IMAGE_USAGE_SAMPLED_BIT;
+    texture_image_create_info.sharingMode = VK_SHARING_MODE_EXCLUSIVE;
+    texture_image_create_info.initialLayout = VK_IMAGE_LAYOUT_UNDEFINED;
+
+    result = vkCreateImage(vk_device, &texture_image_create_info, NULL, &g_TempVulkan.texture_image);
+    if (result != VK_SUCCESS) fatal("Failed to create texture image");
+
+    // Allocate memory for the texture image
+    VkMemoryRequirements texture_image_memory_requirements;
+    (void)vkGetImageMemoryRequirements(vk_device, g_TempVulkan.texture_image, &texture_image_memory_requirements);
+
+    VkMemoryAllocateInfo texture_image_memory_allocate_info = {};
+    texture_image_memory_allocate_info.sType = VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO;
+    texture_image_memory_allocate_info.allocationSize = texture_image_memory_requirements.size;
+    texture_image_memory_allocate_info.memoryTypeIndex = find_memory_type(
+        vk_physical_device,
+        texture_image_memory_requirements.memoryTypeBits,
+        VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT
+    );
+
+    result = vkAllocateMemory(vk_device, &texture_image_memory_allocate_info, NULL, &g_TempVulkan.texture_image_memory);
+    if (result != VK_SUCCESS) fatal("Failed to allocate memory for texture image");
+
+    result = vkBindImageMemory(vk_device, g_TempVulkan.texture_image, g_TempVulkan.texture_image_memory, 0);
+    if (result != VK_SUCCESS) fatal("Failed to bind memory to texture image");
+
+    // Command buffer
+    VkCommandBufferAllocateInfo texture_command_buffer_allocate_info{};
+    texture_command_buffer_allocate_info.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO;
+    texture_command_buffer_allocate_info.commandPool = vk_command_pool;
+    texture_command_buffer_allocate_info.level = VK_COMMAND_BUFFER_LEVEL_PRIMARY;
+    texture_command_buffer_allocate_info.commandBufferCount = 1;
+
+    VkCommandBuffer vk_texture_command_buffer;
+    result = vkAllocateCommandBuffers(vk_device, &texture_command_buffer_allocate_info, &vk_texture_command_buffer);
+    if (result != VK_SUCCESS) fatal("Failed to allocate command buffer for texture");
+
+    // Record commands for copying texture from staging buffer to device-local image memory
+    VkCommandBufferBeginInfo texture_command_buffer_begin_info = {};
+    texture_command_buffer_begin_info.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO;
+    texture_command_buffer_begin_info.flags = VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT;
+    result = vkBeginCommandBuffer(vk_texture_command_buffer, &texture_command_buffer_begin_info);
+    if (result != VK_SUCCESS) fatal("Failed to begin texture command buffer");
+
+    // Command buffer: image memory layout transition: VK_IMAGE_LAYOUT_UNDEFINED -> VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL
+    VkImageMemoryBarrier texture_image_memory_barrier1 = {};
+    texture_image_memory_barrier1.sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER;
+    texture_image_memory_barrier1.oldLayout = VK_IMAGE_LAYOUT_UNDEFINED;
+    texture_image_memory_barrier1.newLayout = VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL;
+    texture_image_memory_barrier1.srcAccessMask = 0;
+    texture_image_memory_barrier1.dstAccessMask = VK_ACCESS_TRANSFER_WRITE_BIT;
+    texture_image_memory_barrier1.image = g_TempVulkan.texture_image;
+    texture_image_memory_barrier1.subresourceRange = {};
+    texture_image_memory_barrier1.subresourceRange.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
+    texture_image_memory_barrier1.subresourceRange.baseMipLevel = 0;
+    texture_image_memory_barrier1.subresourceRange.levelCount = 1;
+    texture_image_memory_barrier1.subresourceRange.baseArrayLayer = 0;
+    texture_image_memory_barrier1.subresourceRange.layerCount = 1;
+
+    vkCmdPipelineBarrier(
+        vk_texture_command_buffer,
+        VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT, VK_PIPELINE_STAGE_TRANSFER_BIT,
+        0,
+        0, NULL,
+        0, NULL,
+        1, &texture_image_memory_barrier1
+    );
+
+    // Command buffer: copy from staging buffer to image buffer
+    VkBufferImageCopy buffer_image_copy = {};
+    buffer_image_copy.bufferOffset = 0;
+    buffer_image_copy.bufferRowLength = 0;
+    buffer_image_copy.bufferImageHeight = 0;
+    buffer_image_copy.imageSubresource = {};
+    buffer_image_copy.imageSubresource.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
+    buffer_image_copy.imageSubresource.mipLevel = 0;
+    buffer_image_copy.imageSubresource.baseArrayLayer = 0;
+    buffer_image_copy.imageSubresource.layerCount = 1;
+    buffer_image_copy.imageOffset = {0, 0, 0};
+    buffer_image_copy.imageExtent = {(uint32_t)tex_w, (uint32_t)tex_h, 1};
+
+    vkCmdCopyBufferToImage(
+        vk_texture_command_buffer,
+        vk_texture_staging_buffer,
+        g_TempVulkan.texture_image,
+        VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
+        1,
+        &buffer_image_copy
+    );
+
+    // Command buffer: image memory layout transition: VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL -> VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL
+    VkImageMemoryBarrier texture_image_memory_barrier2 = texture_image_memory_barrier1;
+    texture_image_memory_barrier2.oldLayout = VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL;
+    texture_image_memory_barrier2.newLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
+    texture_image_memory_barrier2.srcAccessMask = VK_ACCESS_TRANSFER_WRITE_BIT;
+    texture_image_memory_barrier2.dstAccessMask = VK_ACCESS_SHADER_READ_BIT;
+
+    vkCmdPipelineBarrier(
+        vk_texture_command_buffer,
+        VK_PIPELINE_STAGE_TRANSFER_BIT, VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT,
+        0,
+        0, NULL,
+        0, NULL,
+        1, &texture_image_memory_barrier2
+    );
+
+    result = vkEndCommandBuffer(vk_texture_command_buffer);
+    if (result != VK_SUCCESS) fatal("Failed to end texture command buffer");
+
+    // Submit texture command buffer to graphics queue
+    VkSubmitInfo texture_command_buffer_submit_info = {};
+    texture_command_buffer_submit_info.sType = VK_STRUCTURE_TYPE_SUBMIT_INFO;
+    texture_command_buffer_submit_info.commandBufferCount = 1;
+    texture_command_buffer_submit_info.pCommandBuffers = &vk_texture_command_buffer;
+
+    result = vkQueueSubmit(vk_graphics_queue, 1, &texture_command_buffer_submit_info, VK_NULL_HANDLE);
+    if (result != VK_SUCCESS) fatal("Failed to submit texture command buffer to queue");
+
+    // Just CPU-block until the queue is idle to ensure image is done copying
+    result = vkQueueWaitIdle(vk_graphics_queue);
+    if (result != VK_SUCCESS) fatal("Failed to wait idle for graphics queue");
+
+    // Can destroy the staging buffer and memory
+    (void)vkFreeMemory(vk_device, vk_texture_staging_buffer_memory, NULL);
+    (void)vkDestroyBuffer(vk_device, vk_texture_staging_buffer, NULL);
+
+    // Create texture image view
+    VkImageViewCreateInfo texture_image_view_create_info = {};
+    texture_image_view_create_info.sType = VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO;
+    texture_image_view_create_info.image = g_TempVulkan.texture_image;
+    texture_image_view_create_info.viewType = VK_IMAGE_VIEW_TYPE_2D;
+    texture_image_view_create_info.format = VK_FORMAT_R8G8B8A8_SRGB;
+    texture_image_view_create_info.subresourceRange = {};
+    texture_image_view_create_info.subresourceRange.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
+    texture_image_view_create_info.subresourceRange.baseMipLevel = 0;
+    texture_image_view_create_info.subresourceRange.levelCount = 1;
+    texture_image_view_create_info.subresourceRange.baseArrayLayer = 0;
+    texture_image_view_create_info.subresourceRange.layerCount = 1;
+
+    result = vkCreateImageView(vk_device, &texture_image_view_create_info, NULL, &g_TempVulkan.texture_image_view);
+    if (result != VK_SUCCESS) fatal("Failed to create texture image view");
+
+    VkSamplerCreateInfo texture_sampler_create_info = {};
+    texture_sampler_create_info.sType = VK_STRUCTURE_TYPE_SAMPLER_CREATE_INFO;
+    texture_sampler_create_info.magFilter = VK_FILTER_LINEAR;
+    texture_sampler_create_info.minFilter = VK_FILTER_LINEAR;
+    texture_sampler_create_info.addressModeU = VK_SAMPLER_ADDRESS_MODE_REPEAT;
+    texture_sampler_create_info.addressModeV = VK_SAMPLER_ADDRESS_MODE_REPEAT;
+    texture_sampler_create_info.addressModeW = VK_SAMPLER_ADDRESS_MODE_REPEAT;
+    texture_sampler_create_info.anisotropyEnable = VK_FALSE;
+    texture_sampler_create_info.maxAnisotropy = 1.0f;
+    texture_sampler_create_info.borderColor = VK_BORDER_COLOR_INT_OPAQUE_BLACK;
+    texture_sampler_create_info.unnormalizedCoordinates = VK_FALSE;
+    texture_sampler_create_info.compareEnable = VK_FALSE;
+    texture_sampler_create_info.mipmapMode = VK_SAMPLER_MIPMAP_MODE_LINEAR;
+
+    result = vkCreateSampler(vk_device, &texture_sampler_create_info, NULL, &g_TempVulkan.texture_sampler);
+    if (result != VK_SUCCESS) fatal("Failed to create texture sampler");
+
     // Descriptor set layout
+
+    // Binding for uniform buffer
     VkDescriptorSetLayoutBinding uniform_buffer_descriptor_set_layout_binding = {};
     uniform_buffer_descriptor_set_layout_binding.binding = 0;
     uniform_buffer_descriptor_set_layout_binding.descriptorType = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
@@ -302,39 +525,50 @@ void create_basically_everything(GLFWwindow *window, VkPhysicalDevice vk_physica
     uniform_buffer_descriptor_set_layout_binding.stageFlags = VK_SHADER_STAGE_VERTEX_BIT;
     uniform_buffer_descriptor_set_layout_binding.pImmutableSamplers = NULL;
 
-    VkDescriptorSetLayoutCreateInfo uniform_buffer_descriptor_set_layout_create_info = {};
-    uniform_buffer_descriptor_set_layout_create_info.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO;
-    uniform_buffer_descriptor_set_layout_create_info.bindingCount = 1;
-    uniform_buffer_descriptor_set_layout_create_info.pBindings = &uniform_buffer_descriptor_set_layout_binding;
+    // Binding for texture sampler
+    VkDescriptorSetLayoutBinding texture_sampler_descriptor_set_layout_binding = {};
+    texture_sampler_descriptor_set_layout_binding.binding = 1;
+    texture_sampler_descriptor_set_layout_binding.descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
+    texture_sampler_descriptor_set_layout_binding.descriptorCount = 1;
+    texture_sampler_descriptor_set_layout_binding.stageFlags = VK_SHADER_STAGE_FRAGMENT_BIT;
+    texture_sampler_descriptor_set_layout_binding.pImmutableSamplers = NULL;
 
-    result = vkCreateDescriptorSetLayout(vk_device, &uniform_buffer_descriptor_set_layout_create_info, NULL, &g_TempVulkan.uniform_buffer_descriptor_set_layout);
-    if (result != VK_SUCCESS) fatal("Failed to create uniform buffer descriptor set layout");
+    VkDescriptorSetLayoutBinding descriptor_set_layout_bindings[] = {uniform_buffer_descriptor_set_layout_binding, texture_sampler_descriptor_set_layout_binding};
+    VkDescriptorSetLayoutCreateInfo descriptor_set_layout_create_info = {};
+    descriptor_set_layout_create_info.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO;
+    descriptor_set_layout_create_info.bindingCount = 2;
+    descriptor_set_layout_create_info.pBindings = descriptor_set_layout_bindings;
+
+    result = vkCreateDescriptorSetLayout(vk_device, &descriptor_set_layout_create_info, NULL, &g_TempVulkan.descriptor_set_layout);
+    if (result != VK_SUCCESS) fatal("Failed to create descriptor set layout");
 
     // Descriptor pool
-    VkDescriptorPoolSize uniform_buffer_descriptor_pool_size = {};
-    uniform_buffer_descriptor_pool_size.type = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
-    uniform_buffer_descriptor_pool_size.descriptorCount = 1;
+    VkDescriptorPoolSize descriptor_pool_sizes[2] = {};
+    descriptor_pool_sizes[0].type = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
+    descriptor_pool_sizes[0].descriptorCount = 1;
+    descriptor_pool_sizes[1].type = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
+    descriptor_pool_sizes[1].descriptorCount = 1;
 
-    VkDescriptorPoolCreateInfo uniform_buffer_decriptor_pool_create_info = {};
-    uniform_buffer_decriptor_pool_create_info.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO;
-    uniform_buffer_decriptor_pool_create_info.poolSizeCount = 1;
-    uniform_buffer_decriptor_pool_create_info.pPoolSizes = &uniform_buffer_descriptor_pool_size;
-    uniform_buffer_decriptor_pool_create_info.maxSets = 1;
+    VkDescriptorPoolCreateInfo decriptor_pool_create_info = {};
+    decriptor_pool_create_info.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO;
+    decriptor_pool_create_info.poolSizeCount = 2;
+    decriptor_pool_create_info.pPoolSizes = descriptor_pool_sizes;
+    decriptor_pool_create_info.maxSets = 1;
 
-    result = vkCreateDescriptorPool(vk_device, &uniform_buffer_decriptor_pool_create_info, NULL, &g_TempVulkan.uniform_buffer_descriptor_pool);
-    if (result != VK_SUCCESS) fatal("Failed to create uniform buffer descriptor pool");
+    result = vkCreateDescriptorPool(vk_device, &decriptor_pool_create_info, NULL, &g_TempVulkan.descriptor_pool);
+    if (result != VK_SUCCESS) fatal("Failed to create descriptor pool");
 
     // Allocate descriptor sets
-    VkDescriptorSetAllocateInfo uniform_buffer_descriptor_set_allocate_info = {};
-    uniform_buffer_descriptor_set_allocate_info.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO;
-    uniform_buffer_descriptor_set_allocate_info.descriptorPool = g_TempVulkan.uniform_buffer_descriptor_pool;
-    uniform_buffer_descriptor_set_allocate_info.descriptorSetCount = 1;
-    uniform_buffer_descriptor_set_allocate_info.pSetLayouts = &g_TempVulkan.uniform_buffer_descriptor_set_layout;
+    VkDescriptorSetAllocateInfo descriptor_set_allocate_info = {};
+    descriptor_set_allocate_info.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO;
+    descriptor_set_allocate_info.descriptorPool = g_TempVulkan.descriptor_pool;
+    descriptor_set_allocate_info.descriptorSetCount = 1;
+    descriptor_set_allocate_info.pSetLayouts = &g_TempVulkan.descriptor_set_layout;
 
-    result = vkAllocateDescriptorSets(vk_device, &uniform_buffer_descriptor_set_allocate_info, &g_TempVulkan.uniform_buffer_descriptor_set);
-    if (result != VK_SUCCESS) fatal("Failed to allocate uniform buffer descriptor set");
+    result = vkAllocateDescriptorSets(vk_device, &descriptor_set_allocate_info, &g_TempVulkan.descriptor_set);
+    if (result != VK_SUCCESS) fatal("Failed to allocate descriptor set");
 
-    // Update descriptor sets to point to the uniform buffer
+    // Update descriptor sets to point binding 0 to the uniform buffer
     VkDescriptorBufferInfo uniform_buffer_descriptor_buffer_info = {};
     uniform_buffer_descriptor_buffer_info.buffer = g_TempVulkan.uniform_buffer;
     uniform_buffer_descriptor_buffer_info.offset = 0;
@@ -342,7 +576,7 @@ void create_basically_everything(GLFWwindow *window, VkPhysicalDevice vk_physica
 
     VkWriteDescriptorSet uniform_buffer_write_descriptor_set = {};
     uniform_buffer_write_descriptor_set.sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
-    uniform_buffer_write_descriptor_set.dstSet = g_TempVulkan.uniform_buffer_descriptor_set;
+    uniform_buffer_write_descriptor_set.dstSet = g_TempVulkan.descriptor_set;
     uniform_buffer_write_descriptor_set.dstBinding = 0;
     uniform_buffer_write_descriptor_set.dstArrayElement = 0;
     uniform_buffer_write_descriptor_set.descriptorType = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
@@ -350,6 +584,23 @@ void create_basically_everything(GLFWwindow *window, VkPhysicalDevice vk_physica
     uniform_buffer_write_descriptor_set.pBufferInfo = &uniform_buffer_descriptor_buffer_info;
 
     vkUpdateDescriptorSets(vk_device, 1, &uniform_buffer_write_descriptor_set, 0, NULL);
+
+    // Update descriptor sets to point binding 1 to the texture sampler
+    VkDescriptorImageInfo texture_sampler_descriptor_image_info = {};
+    texture_sampler_descriptor_image_info.imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
+    texture_sampler_descriptor_image_info.imageView = g_TempVulkan.texture_image_view;
+    texture_sampler_descriptor_image_info.sampler = g_TempVulkan.texture_sampler;
+
+    VkWriteDescriptorSet texture_sampler_write_descriptor_set = {};
+    uniform_buffer_write_descriptor_set.sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
+    uniform_buffer_write_descriptor_set.dstSet = g_TempVulkan.descriptor_set;
+    uniform_buffer_write_descriptor_set.dstBinding = 1;
+    uniform_buffer_write_descriptor_set.dstArrayElement = 0;
+    uniform_buffer_write_descriptor_set.descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
+    uniform_buffer_write_descriptor_set.descriptorCount = 1;
+    uniform_buffer_write_descriptor_set.pImageInfo = &texture_sampler_descriptor_image_info;
+
+    vkUpdateDescriptorSets(vk_device, 1, &texture_sampler_write_descriptor_set, 0, NULL);
 
     // Graphics pipeline
     VkShaderModule vk_vert_shader_module = create_shader_module(vk_device, "bin/shaders/tri.vert.spv");
@@ -428,8 +679,8 @@ void create_basically_everything(GLFWwindow *window, VkPhysicalDevice vk_physica
     VkPipelineLayoutCreateInfo pipeline_layout_create_info = {};
     pipeline_layout_create_info.sType = VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO;
     pipeline_layout_create_info.setLayoutCount = 1;
-    // Reference the uniform buffer descriptor set layout
-    pipeline_layout_create_info.pSetLayouts = &g_TempVulkan.uniform_buffer_descriptor_set_layout;
+    // Reference the descriptor set layout
+    pipeline_layout_create_info.pSetLayouts = &g_TempVulkan.descriptor_set_layout;
     result = vkCreatePipelineLayout(vk_device, &pipeline_layout_create_info, nullptr, &g_TempVulkan.pipeline_layout);
     if (result != VK_SUCCESS) fatal("Failed to create pipeline layout");
     
@@ -465,8 +716,15 @@ void create_basically_everything(GLFWwindow *window, VkPhysicalDevice vk_physica
 
 void destroy_basically_everything(VkDevice vk_device)
 {
-    (void)vkDestroyDescriptorPool(vk_device, g_TempVulkan.uniform_buffer_descriptor_pool, NULL);
-    (void)vkDestroyDescriptorSetLayout(vk_device, g_TempVulkan.uniform_buffer_descriptor_set_layout, NULL);
+    (void)vkDestroySampler(vk_device, g_TempVulkan.texture_sampler, NULL);
+
+    (void)vkDestroyImage(vk_device, g_TempVulkan.texture_image, NULL);
+    (void)vkFreeMemory(vk_device, g_TempVulkan.texture_image_memory, NULL);
+    
+    (void)vkDestroyImageView(vk_device, g_TempVulkan.texture_image_view, NULL);
+
+    (void)vkDestroyDescriptorPool(vk_device, g_TempVulkan.descriptor_pool, NULL);
+    (void)vkDestroyDescriptorSetLayout(vk_device, g_TempVulkan.descriptor_set_layout, NULL);
 
     (void)vkFreeMemory(vk_device, g_TempVulkan.uniform_buffer_memory, NULL);
     (void)vkDestroyBuffer(vk_device, g_TempVulkan.uniform_buffer, NULL);
@@ -582,8 +840,6 @@ int main()
     // Get queue handle of the graphics queue family
     VkQueue vk_graphics_queue;
     (void)vkGetDeviceQueue(vk_device,vk_graphics_queue_family_index, 0, &vk_graphics_queue);
-
-    create_basically_everything(window, vk_physical_device, vk_surface, vk_device);
 
     // Vertex buffer
     int w_int, h_int;
@@ -708,206 +964,7 @@ int main()
     result = vkAllocateCommandBuffers(vk_device, &command_buffer_allocate_info, &vk_command_buffer);
     if (result != VK_SUCCESS) fatal("Failed to allocate command buffers");
 
-    // Texture
-    int tex_w, tex_h, tex_ch;
-    stbi_uc *pixels = stbi_load("res/DUCKS.png", &tex_w, &tex_h, &tex_ch, STBI_rgb_alpha);
-    VkDeviceSize image_size = tex_w * tex_h * 4; // 4 bytes per pixel
-
-    // Texture staging buffer
-    VkBufferCreateInfo texture_staging_buffer_create_info = {};
-    texture_staging_buffer_create_info.sType = VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO;
-    texture_staging_buffer_create_info.size = image_size;
-    texture_staging_buffer_create_info.usage = VK_BUFFER_USAGE_TRANSFER_SRC_BIT;
-    texture_staging_buffer_create_info.sharingMode = VK_SHARING_MODE_EXCLUSIVE;
-
-    VkBuffer vk_texture_staging_buffer;
-    result = vkCreateBuffer(vk_device, &texture_staging_buffer_create_info, nullptr, &vk_texture_staging_buffer);
-    if (result != VK_SUCCESS) fatal("Failed to create texture staging buffer");
-
-    // Allocate memory for texture staging buffer
-    VkMemoryRequirements texture_staging_buffer_memory_requirements;
-    (void)vkGetBufferMemoryRequirements(vk_device, vk_texture_staging_buffer, &texture_staging_buffer_memory_requirements);
-
-    VkMemoryAllocateInfo texture_staging_buffer_memory_allocate_info = {};
-    texture_staging_buffer_memory_allocate_info.sType = VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO;
-    texture_staging_buffer_memory_allocate_info.allocationSize = texture_staging_buffer_memory_requirements.size;
-    texture_staging_buffer_memory_allocate_info.memoryTypeIndex = find_memory_type(
-        vk_physical_device,
-        texture_staging_buffer_memory_requirements.memoryTypeBits,
-        VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT
-    );
-
-    VkDeviceMemory vk_texture_staging_buffer_memory;
-    result = vkAllocateMemory(vk_device, &texture_staging_buffer_memory_allocate_info, NULL, &vk_texture_staging_buffer_memory);
-    if (result != VK_SUCCESS) fatal("Failed to allocate memory for texture staging buffer");
-
-    result = vkBindBufferMemory(vk_device, vk_texture_staging_buffer, vk_texture_staging_buffer_memory, 0);
-    if (result != VK_SUCCESS) fatal("Failed to bind memory to texture staging buffer");
-
-    // Upload image to the texture staging buffer
-    void *texture_staging_buffer_data_ptr;
-    result = vkMapMemory(vk_device, vk_texture_staging_buffer_memory, 0, image_size, 0, &texture_staging_buffer_data_ptr);
-    if (result != VK_SUCCESS) fatal("Failed to map texture staging buffer memory");
-    memcpy(texture_staging_buffer_data_ptr, pixels, (size_t)image_size);
-    (void)vkUnmapMemory(vk_device, vk_texture_staging_buffer_memory);
-
-    // Can free the texture in RAM now
-    free(pixels);
-
-    // Create image for the texture
-    VkImageCreateInfo texture_image_create_info = {};
-    texture_image_create_info.sType = VK_STRUCTURE_TYPE_IMAGE_CREATE_INFO;
-    texture_image_create_info.imageType = VK_IMAGE_TYPE_2D;
-    texture_image_create_info.format = VK_FORMAT_R8G8B8A8_SRGB;
-    texture_image_create_info.extent = { (uint32_t)tex_w, (uint32_t)tex_h, 1 };
-    texture_image_create_info.mipLevels = 1;
-    texture_image_create_info.arrayLayers = 1;
-    texture_image_create_info.samples = VK_SAMPLE_COUNT_1_BIT;
-    texture_image_create_info.tiling = VK_IMAGE_TILING_OPTIMAL;
-    texture_image_create_info.usage = VK_IMAGE_USAGE_TRANSFER_DST_BIT | VK_IMAGE_USAGE_SAMPLED_BIT;
-    texture_image_create_info.sharingMode = VK_SHARING_MODE_EXCLUSIVE;
-    texture_image_create_info.initialLayout = VK_IMAGE_LAYOUT_UNDEFINED;
-
-    VkImage vk_texture_image;
-    result = vkCreateImage(vk_device, &texture_image_create_info, NULL, &vk_texture_image);
-    if (result != VK_SUCCESS) fatal("Failed to create texture image");
-
-    // Allocate memory for the texture image
-    VkMemoryRequirements texture_image_memory_requirements;
-    (void)vkGetImageMemoryRequirements(vk_device, vk_texture_image, &texture_image_memory_requirements);
-
-    VkMemoryAllocateInfo texture_image_memory_allocate_info = {};
-    texture_image_memory_allocate_info.sType = VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO;
-    texture_image_memory_allocate_info.allocationSize = texture_image_memory_requirements.size;
-    texture_image_memory_allocate_info.memoryTypeIndex = find_memory_type(
-        vk_physical_device,
-        texture_image_memory_requirements.memoryTypeBits,
-        VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT
-    );
-
-    VkDeviceMemory vk_texture_image_memory;
-    result = vkAllocateMemory(vk_device, &texture_image_memory_allocate_info, NULL, &vk_texture_image_memory);
-    if (result != VK_SUCCESS) fatal("Failed to allocate memory for texture image");
-
-    result = vkBindImageMemory(vk_device, vk_texture_image, vk_texture_image_memory, 0);
-    if (result != VK_SUCCESS) fatal("Failed to bind memory to texture image");
-
-    // Command buffer
-    VkCommandBufferAllocateInfo texture_command_buffer_allocate_info{};
-    texture_command_buffer_allocate_info.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO;
-    texture_command_buffer_allocate_info.commandPool = vk_command_pool;
-    texture_command_buffer_allocate_info.level = VK_COMMAND_BUFFER_LEVEL_PRIMARY;
-    texture_command_buffer_allocate_info.commandBufferCount = 1;
-
-    VkCommandBuffer vk_texture_command_buffer;
-    result = vkAllocateCommandBuffers(vk_device, &texture_command_buffer_allocate_info, &vk_texture_command_buffer);
-    if (result != VK_SUCCESS) fatal("Failed to allocate command buffer for texture");
-
-    // Record commands for copying texture from staging buffer to device-local image memory
-    VkCommandBufferBeginInfo texture_command_buffer_begin_info = {};
-    texture_command_buffer_begin_info.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO;
-    texture_command_buffer_begin_info.flags = VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT;
-    result = vkBeginCommandBuffer(vk_command_buffer, &texture_command_buffer_begin_info);
-    if (result != VK_SUCCESS) fatal("Failed to begin texture command buffer");
-
-    // Command buffer: image memory layout transition: VK_IMAGE_LAYOUT_UNDEFINED -> VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL
-    VkImageMemoryBarrier texture_image_memory_barrier1 = {};
-    texture_image_memory_barrier1.sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER;
-    texture_image_memory_barrier1.oldLayout = VK_IMAGE_LAYOUT_UNDEFINED;
-    texture_image_memory_barrier1.newLayout = VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL;
-    texture_image_memory_barrier1.srcAccessMask = 0;
-    texture_image_memory_barrier1.dstAccessMask = VK_ACCESS_TRANSFER_WRITE_BIT;
-    texture_image_memory_barrier1.image = vk_texture_image;
-    texture_image_memory_barrier1.subresourceRange = {};
-    texture_image_memory_barrier1.subresourceRange.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
-    texture_image_memory_barrier1.subresourceRange.baseMipLevel = 0;
-    texture_image_memory_barrier1.subresourceRange.levelCount = 1;
-    texture_image_memory_barrier1.subresourceRange.baseArrayLayer = 0;
-    texture_image_memory_barrier1.subresourceRange.layerCount = 1;
-
-    vkCmdPipelineBarrier(
-        vk_texture_command_buffer,
-        VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT, VK_PIPELINE_STAGE_TRANSFER_BIT,
-        0,
-        0, NULL,
-        0, NULL,
-        1, &texture_image_memory_barrier1
-    );
-
-    // Command buffer: copy from staging buffer to image buffer
-    VkBufferImageCopy buffer_image_copy = {};
-    buffer_image_copy.bufferOffset = 0;
-    buffer_image_copy.bufferRowLength = 0;
-    buffer_image_copy.bufferImageHeight = 0;
-    buffer_image_copy.imageSubresource = {};
-    buffer_image_copy.imageSubresource.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
-    buffer_image_copy.imageSubresource.mipLevel = 0;
-    buffer_image_copy.imageSubresource.baseArrayLayer = 0;
-    buffer_image_copy.imageSubresource.layerCount = 1;
-    buffer_image_copy.imageOffset = {0, 0, 0};
-    buffer_image_copy.imageExtent = {(uint32_t)tex_w, (uint32_t)tex_h, 1};
-
-    vkCmdCopyBufferToImage(
-        vk_texture_command_buffer,
-        vk_texture_staging_buffer,
-        vk_texture_image,
-        VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
-        1,
-        &buffer_image_copy
-    );
-
-    // Command buffer: image memory layout transition: VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL -> VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL
-    VkImageMemoryBarrier texture_image_memory_barrier2 = texture_image_memory_barrier1;
-    texture_image_memory_barrier2.oldLayout = VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL;
-    texture_image_memory_barrier2.newLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
-    texture_image_memory_barrier2.srcAccessMask = VK_ACCESS_TRANSFER_WRITE_BIT;
-    texture_image_memory_barrier2.dstAccessMask = VK_ACCESS_SHADER_READ_BIT;
-
-    vkCmdPipelineBarrier(
-        vk_texture_command_buffer,
-        VK_PIPELINE_STAGE_TRANSFER_BIT, VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT,
-        0,
-        0, NULL,
-        0, NULL,
-        1, &texture_image_memory_barrier2
-    );
-
-    result = vkEndCommandBuffer(vk_texture_command_buffer);
-    if (result != VK_SUCCESS) fatal("Failed to end texture command buffer");
-
-    // Submit texture command buffer to graphics queue
-    VkSubmitInfo texture_command_buffer_submit_info = {};
-    texture_command_buffer_submit_info.sType = VK_STRUCTURE_TYPE_SUBMIT_INFO;
-    texture_command_buffer_submit_info.commandBufferCount = 1;
-    texture_command_buffer_submit_info.pCommandBuffers = &vk_command_buffer;
-
-    result = vkQueueSubmit(vk_graphics_queue, 1, &texture_command_buffer_submit_info, VK_NULL_HANDLE);
-    if (result != VK_SUCCESS) fatal("Failed to submit texture command buffer to queue");
-
-    // Just CPU-block until the queue is idle to ensure image is done copying
-    result = vkQueueWaitIdle(vk_graphics_queue);
-    if (result != VK_SUCCESS) fatal("Failed to wait idle for graphics queue");
-
-    // Can destroy the staging buffer and memory
-    (void)vkFreeMemory(vk_device, vk_texture_staging_buffer_memory, NULL);
-    (void)vkDestroyBuffer(vk_device, vk_texture_staging_buffer, NULL);
-
-    // Create texture image view
-    VkImageViewCreateInfo texture_image_view_create_info = {};
-    texture_image_view_create_info.sType = VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO;
-    texture_image_view_create_info.image = vk_texture_image;
-    texture_image_view_create_info.viewType = VK_IMAGE_VIEW_TYPE_2D;
-    texture_image_view_create_info.format = VK_FORMAT_R8G8B8A8_SRGB;
-    texture_image_view_create_info.subresourceRange = {};
-    texture_image_view_create_info.subresourceRange.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
-    texture_image_view_create_info.subresourceRange.baseMipLevel = 0;
-    texture_image_view_create_info.subresourceRange.levelCount = 1;
-    texture_image_view_create_info.subresourceRange.baseArrayLayer = 0;
-    texture_image_view_create_info.subresourceRange.layerCount = 1;
-
-    VkImageView vk_texture_image_view;
-    result = vkCreateImageView(vk_device, &texture_image_view_create_info, NULL, &vk_texture_image_view);
-    if (result != VK_SUCCESS) fatal("Failed to create texture image view");
+    create_basically_everything(window, vk_physical_device, vk_surface, vk_device, vk_graphics_queue, vk_command_pool);
 
     bool recreate_everything = false;
 
@@ -919,7 +976,7 @@ int main()
         {
             vkDeviceWaitIdle(vk_device);
             destroy_basically_everything(vk_device);
-            create_basically_everything(window, vk_physical_device, vk_surface, vk_device);
+            create_basically_everything(window, vk_physical_device, vk_surface, vk_device, vk_graphics_queue, vk_command_pool);
             trace("Recreated everything. Swapchain extent: %ux%u", g_TempVulkan.swapchain_extent.width, g_TempVulkan.swapchain_extent.height);
             recreate_everything = false;
         }
@@ -989,7 +1046,7 @@ int main()
             VK_PIPELINE_BIND_POINT_GRAPHICS,
             g_TempVulkan.pipeline_layout,
             0, // firstSet
-            1, &g_TempVulkan.uniform_buffer_descriptor_set,
+            1, &g_TempVulkan.descriptor_set,
             0, NULL
         );
         // Bind pipeline that is used for drawing triangle
@@ -1041,12 +1098,6 @@ int main()
         result = vkQueueWaitIdle(vk_graphics_queue);
         if (result != VK_SUCCESS) fatal("Failed to wait idle for graphics queue");
     }
-
-
-    (void)vkDestroyImage(vk_device, vk_texture_image, NULL);
-    (void)vkFreeMemory(vk_device, vk_texture_image_memory, NULL);
-    
-    (void)vkDestroyImageView(vk_device, vk_texture_image_view, NULL);
 
     (void)vkDestroyCommandPool(vk_device, vk_command_pool, NULL);
 
