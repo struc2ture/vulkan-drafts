@@ -596,8 +596,8 @@ int main()
         { q_min_x, q_max_y, 0.7f, 0.6f, 0.5f },
         { q_max_x, q_max_y, 0.7f, 0.6f, 0.5f },
         { q_max_x, q_min_y, 0.7f, 0.6f, 0.5f },
-        { q_min_x, q_max_y, 0.7f, 0.6f, 0.5f },
-        { q_max_x, q_min_y, 0.7f, 0.6f, 0.5f },
+        // { q_min_x, q_max_y, 0.7f, 0.6f, 0.5f },
+        // { q_max_x, q_min_y, 0.7f, 0.6f, 0.5f },
         { q_min_x, q_min_y, 0.7f, 0.6f, 0.5f },
     };
 
@@ -639,6 +639,49 @@ int main()
     if (result != VK_SUCCESS) fatal("Failed to map vertex buffer memory");
     memcpy(vertex_buffer_data_ptr, verts, (size_t)vertex_buffer_size);
     (void)vkUnmapMemory(vk_device, vk_vertex_buffer_memory);
+
+    // Index buffer
+    uint32_t indices[] = {0, 1, 2, 0, 2, 3};
+    int index_count = 6;
+
+    VkDeviceSize index_buffer_size = sizeof(indices);
+
+    VkBufferCreateInfo index_buffer_create_info = {};
+    index_buffer_create_info.sType = VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO;
+    index_buffer_create_info.size = index_buffer_size;
+    index_buffer_create_info.usage = VK_BUFFER_USAGE_INDEX_BUFFER_BIT;
+    index_buffer_create_info.sharingMode = VK_SHARING_MODE_EXCLUSIVE;
+
+    VkBuffer vk_index_buffer;
+    result = vkCreateBuffer(vk_device, &index_buffer_create_info, nullptr, &vk_index_buffer);
+    if (result != VK_SUCCESS) fatal("Failed to create index buffer");
+
+    // Allocate memory for index buffer
+    VkMemoryRequirements index_buffer_memory_requirements;
+    (void)vkGetBufferMemoryRequirements(vk_device, vk_index_buffer, &index_buffer_memory_requirements);
+
+    VkMemoryAllocateInfo index_buffer_memory_allocate_info = {};
+    index_buffer_memory_allocate_info.sType = VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO;
+    index_buffer_memory_allocate_info.allocationSize = index_buffer_memory_requirements.size;
+    index_buffer_memory_allocate_info.memoryTypeIndex = find_memory_type(
+        vk_physical_device,
+        index_buffer_memory_requirements.memoryTypeBits,
+        VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT
+    );;
+
+    VkDeviceMemory vk_index_buffer_memory;
+    result = vkAllocateMemory(vk_device, &index_buffer_memory_allocate_info, NULL, &vk_index_buffer_memory);
+    if (result != VK_SUCCESS) fatal("Failed to allocate memory for index buffer");
+
+    result = vkBindBufferMemory(vk_device, vk_index_buffer, vk_index_buffer_memory, 0);
+    if (result != VK_SUCCESS) fatal("Failed to bind memory to index buffer");
+
+    // Upload data to the index buffer
+    void *index_buffer_data_ptr;
+    result = vkMapMemory(vk_device, vk_index_buffer_memory, 0, index_buffer_size, 0, &index_buffer_data_ptr);
+    if (result != VK_SUCCESS) fatal("Failed to map index buffer memory");
+    memcpy(index_buffer_data_ptr, indices, (size_t)index_buffer_size);
+    (void)vkUnmapMemory(vk_device, vk_index_buffer_memory);
 
     // Command pool
     VkCommandPoolCreateInfo command_pool_create_info{};
@@ -688,12 +731,12 @@ int main()
         float q_max_y = h - pad;
         
         const Vertex verts[] = {
-            { q_min_x, q_max_y, 0.7f, 0.6f, 0.5f },
-            { q_max_x, q_max_y, 0.7f, 0.6f, 0.5f },
-            { q_max_x, q_min_y, 0.7f, 0.6f, 0.5f },
-            { q_min_x, q_max_y, 0.7f, 0.6f, 0.5f },
-            { q_max_x, q_min_y, 0.7f, 0.6f, 0.5f },
-            { q_min_x, q_min_y, 0.7f, 0.6f, 0.5f },
+            { q_min_x, q_max_y, 0.7f, 0.6f, 0.5f }, // 0
+            { q_max_x, q_max_y, 0.7f, 0.6f, 0.5f }, // 1
+            { q_max_x, q_min_y, 0.7f, 0.6f, 0.5f }, // 2
+            // { q_min_x, q_max_y, 0.7f, 0.6f, 0.5f }, // 0
+            // { q_max_x, q_min_y, 0.7f, 0.6f, 0.5f }, // 2
+            { q_min_x, q_min_y, 0.7f, 0.6f, 0.5f }, // 3
         };
 
         void *vertex_buffer_data_ptr;
@@ -749,8 +792,10 @@ int main()
         VkDeviceSize offsets[] = { 0 };
         // Bind vertex buffer that contains triangle vertices
         (void)vkCmdBindVertexBuffers(vk_command_buffer, 0, 1, &vk_vertex_buffer, offsets);
+        (void)vkCmdBindIndexBuffer(vk_command_buffer, vk_index_buffer, 0, VK_INDEX_TYPE_UINT32);
         // Draw call for 6 vertices
-        (void)vkCmdDraw(vk_command_buffer, 6, 1, 0, 0);
+        // (void)vkCmdDraw(vk_command_buffer, 6, 1, 0, 0);
+        (void)vkCmdDrawIndexed(vk_command_buffer, index_count, 1, 0, 0, 0);
 
         (void)vkCmdEndRenderPass(vk_command_buffer);
         result = vkEndCommandBuffer(vk_command_buffer);
@@ -793,6 +838,10 @@ int main()
     }
 
     (void)vkDestroyCommandPool(vk_device, vk_command_pool, NULL);
+
+    (void)vkFreeMemory(vk_device, vk_index_buffer_memory, NULL);
+    (void)vkDestroyBuffer(vk_device, vk_index_buffer, NULL);
+
     (void)vkFreeMemory(vk_device, vk_vertex_buffer_memory, NULL);
     (void)vkDestroyBuffer(vk_device, vk_vertex_buffer, NULL);
 

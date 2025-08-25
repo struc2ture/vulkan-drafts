@@ -1,1 +1,2 @@
 - Drawing triangle -> drawing quad
+- Indexed draw
