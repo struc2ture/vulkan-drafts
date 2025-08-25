@@ -582,10 +582,23 @@ int main()
     create_basically_everything(window, vk_physical_device, vk_surface, vk_device);
 
     // Vertex buffer
+    int w_int, h_int;
+    glfwGetWindowSize(window, &w_int, &h_int);
+    float w = w_int;
+    float h = h_int;
+    float pad = 100.0f;
+    float q_min_x = pad;
+    float q_max_x = w - pad;
+    float q_min_y = pad;
+    float q_max_y = h - pad;
+    
     const Vertex verts[] = {
-        { 500.0f, 0.0f, 1.0f, 0.0f, 0.0f },
-        { 0.0f, 900.0f, 0.0f, 1.0f, 0.0f },
-        { 1000.0f, 900.0f, 0.0f, 0.0f, 1.0f },
+        { q_min_x, q_max_y, 0.7f, 0.6f, 0.5f },
+        { q_max_x, q_max_y, 0.7f, 0.6f, 0.5f },
+        { q_max_x, q_min_y, 0.7f, 0.6f, 0.5f },
+        { q_min_x, q_max_y, 0.7f, 0.6f, 0.5f },
+        { q_max_x, q_min_y, 0.7f, 0.6f, 0.5f },
+        { q_min_x, q_min_y, 0.7f, 0.6f, 0.5f },
     };
 
     VkDeviceSize vertex_buffer_size = sizeof(verts);
@@ -663,6 +676,32 @@ int main()
             recreate_everything = false;
         }
 
+        // Re-upload quad verts
+        int w_int, h_int;
+        glfwGetWindowSize(window, &w_int, &h_int);
+        float w = w_int;
+        float h = h_int;
+        float pad = 100.0f;
+        float q_min_x = pad;
+        float q_max_x = w - pad;
+        float q_min_y = pad;
+        float q_max_y = h - pad;
+        
+        const Vertex verts[] = {
+            { q_min_x, q_max_y, 0.7f, 0.6f, 0.5f },
+            { q_max_x, q_max_y, 0.7f, 0.6f, 0.5f },
+            { q_max_x, q_min_y, 0.7f, 0.6f, 0.5f },
+            { q_min_x, q_max_y, 0.7f, 0.6f, 0.5f },
+            { q_max_x, q_min_y, 0.7f, 0.6f, 0.5f },
+            { q_min_x, q_min_y, 0.7f, 0.6f, 0.5f },
+        };
+
+        void *vertex_buffer_data_ptr;
+        result = vkMapMemory(vk_device, vk_vertex_buffer_memory, 0, vertex_buffer_size, 0, &vertex_buffer_data_ptr);
+        if (result != VK_SUCCESS) fatal("Failed to map vertex buffer memory");
+        memcpy(vertex_buffer_data_ptr, verts, (size_t)vertex_buffer_size);
+        (void)vkUnmapMemory(vk_device, vk_vertex_buffer_memory);
+
         // Acquire next image
         uint32_t next_image_index;
         result = vkAcquireNextImageKHR(vk_device, g_TempVulkan.swapchain, UINT64_MAX, g_TempVulkan.image_available_semaphore, VK_NULL_HANDLE, &next_image_index);
@@ -710,8 +749,8 @@ int main()
         VkDeviceSize offsets[] = { 0 };
         // Bind vertex buffer that contains triangle vertices
         (void)vkCmdBindVertexBuffers(vk_command_buffer, 0, 1, &vk_vertex_buffer, offsets);
-        // Draw call for 3 vertices
-        (void)vkCmdDraw(vk_command_buffer, 3, 1, 0, 0);
+        // Draw call for 6 vertices
+        (void)vkCmdDraw(vk_command_buffer, 6, 1, 0, 0);
 
         (void)vkCmdEndRenderPass(vk_command_buffer);
         result = vkEndCommandBuffer(vk_command_buffer);
