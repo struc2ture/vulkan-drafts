@@ -25,3 +25,8 @@
     - vkUpdateDescriptorSets: Binding 0 -- UBO; binding 1 -- texture sampler
 - Move the texture loading code to create_basically_everything, because it's again a dependency of desriptor set layout and thus pipeline layout and thus pipeline. For now, it's the easiest, albeit the most brute-force way to do it. Without creating a complicated dependency tree. Will sort this out later.
 - Update shaders, hardcoding UVs for now. Just check that it's sampling texture.
+- Update shaders to take another vertex attribute: uvs. Unhardcode the uvs in the shader.
+- Update vertex input attribute descriptions in the vertex input state when creating pipeline
+- Flip png image in stb
+- Change texture image format to VK_FORMAT_R8G8B8A8_UNORM... for some reason... it was looking darker than original with SRGB... for some reason...
+    - Still don't understand srgb....

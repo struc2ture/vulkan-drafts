@@ -35,6 +35,7 @@
 struct Vertex
 {
     float x, y;
+    float u, v;
     float r, g, b;
 };
 
@@ -302,6 +303,7 @@ void create_basically_everything(GLFWwindow *window, VkPhysicalDevice vk_physica
 
     // Texture
     int tex_w, tex_h, tex_ch;
+    stbi_set_flip_vertically_on_load(true);
     stbi_uc *pixels = stbi_load("res/DUCKS.png", &tex_w, &tex_h, &tex_ch, STBI_rgb_alpha);
     VkDeviceSize image_size = tex_w * tex_h * 4; // 4 bytes per pixel
 
@@ -350,7 +352,7 @@ void create_basically_everything(GLFWwindow *window, VkPhysicalDevice vk_physica
     VkImageCreateInfo texture_image_create_info = {};
     texture_image_create_info.sType = VK_STRUCTURE_TYPE_IMAGE_CREATE_INFO;
     texture_image_create_info.imageType = VK_IMAGE_TYPE_2D;
-    texture_image_create_info.format = VK_FORMAT_R8G8B8A8_SRGB;
+    texture_image_create_info.format = VK_FORMAT_R8G8B8A8_UNORM;
     texture_image_create_info.extent = { (uint32_t)tex_w, (uint32_t)tex_h, 1 };
     texture_image_create_info.mipLevels = 1;
     texture_image_create_info.arrayLayers = 1;
@@ -487,7 +489,7 @@ void create_basically_everything(GLFWwindow *window, VkPhysicalDevice vk_physica
     texture_image_view_create_info.sType = VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO;
     texture_image_view_create_info.image = g_TempVulkan.texture_image;
     texture_image_view_create_info.viewType = VK_IMAGE_VIEW_TYPE_2D;
-    texture_image_view_create_info.format = VK_FORMAT_R8G8B8A8_SRGB;
+    texture_image_view_create_info.format = VK_FORMAT_R8G8B8A8_UNORM;
     texture_image_view_create_info.subresourceRange = {};
     texture_image_view_create_info.subresourceRange.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
     texture_image_view_create_info.subresourceRange.baseMipLevel = 0;
@@ -621,15 +623,19 @@ void create_basically_everything(GLFWwindow *window, VkPhysicalDevice vk_physica
     vertex_input_binding_description.stride = sizeof(Vertex);
     vertex_input_binding_description.inputRate = VK_VERTEX_INPUT_RATE_VERTEX;
 
-    std::vector<VkVertexInputAttributeDescription> vertex_input_attribute_descriptions(2);
+    std::vector<VkVertexInputAttributeDescription> vertex_input_attribute_descriptions(3);
     vertex_input_attribute_descriptions[0].location = 0;
     vertex_input_attribute_descriptions[0].binding = 0;
     vertex_input_attribute_descriptions[0].format = VK_FORMAT_R32G32_SFLOAT;
     vertex_input_attribute_descriptions[0].offset = offsetof(Vertex, x);
     vertex_input_attribute_descriptions[1].location = 1;
     vertex_input_attribute_descriptions[1].binding = 0;
-    vertex_input_attribute_descriptions[1].format = VK_FORMAT_R32G32B32_SFLOAT;
-    vertex_input_attribute_descriptions[1].offset = offsetof(Vertex, r);
+    vertex_input_attribute_descriptions[1].format = VK_FORMAT_R32G32_SFLOAT;
+    vertex_input_attribute_descriptions[1].offset = offsetof(Vertex, u);
+    vertex_input_attribute_descriptions[2].location = 2;
+    vertex_input_attribute_descriptions[2].binding = 0;
+    vertex_input_attribute_descriptions[2].format = VK_FORMAT_R32G32B32_SFLOAT;
+    vertex_input_attribute_descriptions[2].offset = offsetof(Vertex, r);
 
     VkPipelineVertexInputStateCreateInfo pipeline_vertex_input_state_create_info = {};
     pipeline_vertex_input_state_create_info.sType = VK_STRUCTURE_TYPE_PIPELINE_VERTEX_INPUT_STATE_CREATE_INFO;
@@ -853,12 +859,10 @@ int main()
     float q_max_y = h - pad;
     
     const Vertex verts[] = {
-        { q_min_x, q_max_y, 0.7f, 0.6f, 0.5f },
-        { q_max_x, q_max_y, 0.7f, 0.6f, 0.5f },
-        { q_max_x, q_min_y, 0.7f, 0.6f, 0.5f },
-        // { q_min_x, q_max_y, 0.7f, 0.6f, 0.5f },
-        // { q_max_x, q_min_y, 0.7f, 0.6f, 0.5f },
-        { q_min_x, q_min_y, 0.7f, 0.6f, 0.5f },
+        { q_min_x, q_max_y, 0.0f, 0.0f, 0.7f, 0.6f, 0.5f },
+        { q_max_x, q_max_y, 1.0f, 0.0f, 0.7f, 0.6f, 0.5f },
+        { q_max_x, q_min_y, 1.0f, 1.0f, 0.7f, 0.6f, 0.5f },
+        { q_min_x, q_min_y, 0.0f, 1.0f, 0.7f, 0.6f, 0.5f },
     };
 
     VkDeviceSize vertex_buffer_size = sizeof(verts);
@@ -991,14 +995,12 @@ int main()
         float q_max_x = w - pad;
         float q_min_y = pad;
         float q_max_y = h - pad;
-        
+
         const Vertex verts[] = {
-            { q_min_x, q_max_y, 0.7f, 0.6f, 0.5f }, // 0
-            { q_max_x, q_max_y, 0.7f, 0.6f, 0.5f }, // 1
-            { q_max_x, q_min_y, 0.7f, 0.6f, 0.5f }, // 2
-            // { q_min_x, q_max_y, 0.7f, 0.6f, 0.5f }, // 0
-            // { q_max_x, q_min_y, 0.7f, 0.6f, 0.5f }, // 2
-            { q_min_x, q_min_y, 0.7f, 0.6f, 0.5f }, // 3
+            { q_min_x, q_max_y, 0.0f, 0.0f, 0.7f, 0.6f, 0.5f },
+            { q_max_x, q_max_y, 1.0f, 0.0f, 0.7f, 0.6f, 0.5f },
+            { q_max_x, q_min_y, 1.0f, 1.0f, 0.7f, 0.6f, 0.5f },
+            { q_min_x, q_min_y, 0.0f, 1.0f, 0.7f, 0.6f, 0.5f },
         };
 
         void *vertex_buffer_data_ptr;
