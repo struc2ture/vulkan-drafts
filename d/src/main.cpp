@@ -79,9 +79,11 @@
 
 #define bp() __builtin_debugtrap()
 
+#define array_count(ARRAY) (sizeof(ARRAY)/sizeof(ARRAY[0]))
+
 struct Vertex
 {
-    float x, y;
+    float x, y, z;
     float u, v;
     float r, g, b;
 };
@@ -278,9 +280,12 @@ VulkanBasicallyEverything create_basically_everything(GLFWwindow *window, VkPhys
     // Create uniform buffer for projection
     int w, h;
     glfwGetWindowSize(window, &w, &h);
-    m4 proj = m4_proj_ortho(0.0f, w, 0.0f, h, -1.0f, 1.0f);
-    // m4 proj = m4_proj_perspective(deg_to_rad(60), (float)w / h, 0.1f, 100.0f);
-    VkDeviceSize vk_uniform_buffer_size = sizeof(proj);
+    // m4 proj = m4_proj_ortho(0.0f, w, 0.0f, h, -1.0f, 1.0f);
+    m4 proj = m4_proj_perspective(deg_to_rad(60), (float)w / h, 0.1f, 100.0f);
+    // m4 proj = m4_identity();
+    m4 view = m4_translate(0.0f, 0.0f, -5.0f);
+    m4 mvp = m4_mul(proj, view);
+    VkDeviceSize vk_uniform_buffer_size = sizeof(mvp);
 
     VkBufferCreateInfo uniform_buffer_create_info = {};
     uniform_buffer_create_info.sType = VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO;
@@ -314,7 +319,7 @@ VulkanBasicallyEverything create_basically_everything(GLFWwindow *window, VkPhys
     void *uniform_data_ptr;
     result = vkMapMemory(vk_device, temp_vulkan.uniform_buffer_memory, 0, vk_uniform_buffer_size, 0, &uniform_data_ptr);
     if (result != VK_SUCCESS) fatal("Failed to map uniform buffer memory");
-    memcpy(uniform_data_ptr, &proj, (size_t)vk_uniform_buffer_size);
+    memcpy(uniform_data_ptr, &mvp, (size_t)vk_uniform_buffer_size);
     (void)vkUnmapMemory(vk_device, temp_vulkan.uniform_buffer_memory);
 
     // Texture
@@ -642,7 +647,7 @@ VulkanBasicallyEverything create_basically_everything(GLFWwindow *window, VkPhys
     std::vector<VkVertexInputAttributeDescription> vertex_input_attribute_descriptions(3);
     vertex_input_attribute_descriptions[0].location = 0;
     vertex_input_attribute_descriptions[0].binding = 0;
-    vertex_input_attribute_descriptions[0].format = VK_FORMAT_R32G32_SFLOAT;
+    vertex_input_attribute_descriptions[0].format = VK_FORMAT_R32G32B32_SFLOAT;
     vertex_input_attribute_descriptions[0].offset = offsetof(Vertex, x);
     vertex_input_attribute_descriptions[1].location = 1;
     vertex_input_attribute_descriptions[1].binding = 0;
@@ -679,7 +684,7 @@ VulkanBasicallyEverything create_basically_everything(GLFWwindow *window, VkPhys
     pipeline_rasterization_state_create_info.sType = VK_STRUCTURE_TYPE_PIPELINE_RASTERIZATION_STATE_CREATE_INFO;
     pipeline_rasterization_state_create_info.polygonMode = VK_POLYGON_MODE_FILL;
     pipeline_rasterization_state_create_info.lineWidth = 1.0f;
-    pipeline_rasterization_state_create_info.cullMode = VK_CULL_MODE_NONE;
+    pipeline_rasterization_state_create_info.cullMode = VK_CULL_MODE_BACK_BIT;
     pipeline_rasterization_state_create_info.frontFace = VK_FRONT_FACE_COUNTER_CLOCKWISE;
 
     VkPipelineMultisampleStateCreateInfo pipeline_multisample_state_create_info = {};
@@ -866,6 +871,7 @@ int main()
     (void)vkGetDeviceQueue(vk_device,vk_graphics_queue_family_index, 0, &vk_graphics_queue);
 
     // Vertex buffer
+    #if 0
     // Ortho quad
     int w_int, h_int;
     glfwGetWindowSize(window, &w_int, &h_int);
@@ -884,18 +890,46 @@ int main()
         { q_min_x, q_min_y, 0.0f, 1.0f, 0.7f, 0.6f, 0.5f },
     };
 
-    // const Vertex verts[] = {
-    //     { -0.5f, -0.5f, 0.0f, 0.0f, 0.7f, 0.6f, 0.5f },
-    //     {  0.5f, -0.5f, 1.0f, 0.0f, 0.7f, 0.6f, 0.5f },
-    //     {  0.5f,  0.5f, 1.0f, 1.0f, 0.7f, 0.6f, 0.5f },
-    //     { -0.5f,  0.5f, 0.0f, 1.0f, 0.7f, 0.6f, 0.5f },
-    // };
+    const Vertex verts[] = {
+        { -0.5f,  0.5f, -5.0f, 0.0f, 0.0f, 0.7f, 0.6f, 0.5f },
+        {  0.5f,  0.5f, -5.0f, 1.0f, 0.0f, 0.7f, 0.6f, 0.5f },
+        {  0.5f, -0.5f, -5.0f, 1.0f, 1.0f, 0.7f, 0.6f, 0.5f },
+        { -0.5f, -0.5f, -5.0f, 0.0f, 1.0f, 0.7f, 0.6f, 0.5f },
+    };
+    #endif
 
-    // const Vertex verts[] =
-    // {
-    //     { -0.5f, -0.5f, -0.5f },
-    //     { -0.5f, -0.5f, -0.5f },
-    // };
+    const Vertex verts[] = {
+        // a
+        { -0.5f, -0.5f, -0.5f, 0.0f, 0.0f, 0.7f, 0.6f, 0.5f }, // 0
+        {  0.5f, -0.5f, -0.5f, 1.0f, 0.0f, 0.7f, 0.6f, 0.5f }, // 1
+        {  0.5f, -0.5f,  0.5f, 1.0f, 1.0f, 0.7f, 0.6f, 0.5f }, // 2
+        { -0.5f, -0.5f,  0.5f, 0.0f, 1.0f, 0.7f, 0.6f, 0.5f }, // 3
+        // b
+        { -0.5f,  0.5f,  0.5f, 0.0f, 0.0f, 0.7f, 0.6f, 0.5f }, // 4
+        {  0.5f,  0.5f,  0.5f, 1.0f, 0.0f, 0.7f, 0.6f, 0.5f }, // 5
+        {  0.5f,  0.5f, -0.5f, 1.0f, 1.0f, 0.7f, 0.6f, 0.5f }, // 6
+        { -0.5f,  0.5f, -0.5f, 0.0f, 1.0f, 0.7f, 0.6f, 0.5f }, // 7
+        // c
+        { -0.5f, -0.5f,  0.5f, 0.0f, 0.0f, 0.7f, 0.6f, 0.5f }, // 8
+        {  0.5f, -0.5f,  0.5f, 1.0f, 0.0f, 0.7f, 0.6f, 0.5f }, // 9
+        {  0.5f,  0.5f,  0.5f, 1.0f, 1.0f, 0.7f, 0.6f, 0.5f }, // 10
+        { -0.5f,  0.5f,  0.5f, 0.0f, 1.0f, 0.7f, 0.6f, 0.5f }, // 11
+        // d
+        {  0.5f, -0.5f,  0.5f, 0.0f, 0.0f, 0.7f, 0.6f, 0.5f }, // 12
+        {  0.5f, -0.5f, -0.5f, 1.0f, 0.0f, 0.7f, 0.6f, 0.5f }, // 13
+        {  0.5f,  0.5f, -0.5f, 1.0f, 1.0f, 0.7f, 0.6f, 0.5f }, // 14
+        {  0.5f,  0.5f,  0.5f, 0.0f, 1.0f, 0.7f, 0.6f, 0.5f }, // 15
+        // e
+        {  0.5f, -0.5f, -0.5f, 0.0f, 0.0f, 0.7f, 0.6f, 0.5f }, // 16
+        { -0.5f, -0.5f, -0.5f, 1.0f, 0.0f, 0.7f, 0.6f, 0.5f }, // 17
+        { -0.5f,  0.5f, -0.5f, 1.0f, 1.0f, 0.7f, 0.6f, 0.5f }, // 18
+        {  0.5f,  0.5f, -0.5f, 0.0f, 1.0f, 0.7f, 0.6f, 0.5f }, // 19
+        // f
+        { -0.5f, -0.5f, -0.5f, 0.0f, 0.0f, 0.7f, 0.6f, 0.5f }, // 20
+        { -0.5f, -0.5f,  0.5f, 1.0f, 0.0f, 0.7f, 0.6f, 0.5f }, // 21
+        { -0.5f,  0.5f,  0.5f, 1.0f, 1.0f, 0.7f, 0.6f, 0.5f }, // 22
+        { -0.5f,  0.5f, -0.5f, 0.0f, 1.0f, 0.7f, 0.6f, 0.5f }, // 23
+    };
 
     VkDeviceSize vertex_buffer_size = sizeof(verts);
 
@@ -937,8 +971,16 @@ int main()
     (void)vkUnmapMemory(vk_device, vk_vertex_buffer_memory);
 
     // Index buffer
-    uint32_t indices[] = {0, 1, 2, 0, 2, 3};
-    int index_count = 6;
+    uint32_t indices[] = 
+    {
+         0,  1,  2,  0,  2,  3, // a
+         4,  5,  6,  4,  6,  7, // b
+         8,  9, 10,  8, 10, 11, // c
+        12, 13, 14, 12, 14, 15, // d
+        16, 17, 18, 16, 18, 19, // e
+        20, 21, 22, 20, 22, 23, // f
+    };
+    int index_count = array_count(indices);
 
     VkDeviceSize index_buffer_size = sizeof(indices);
 
@@ -1018,6 +1060,7 @@ int main()
         }
 
         // Re-upload quad verts
+        #if 0
         int w_int, h_int;
         glfwGetWindowSize(window, &w_int, &h_int);
         float w = w_int;
@@ -1028,11 +1071,19 @@ int main()
         float q_min_y = pad;
         float q_max_y = h - pad;
 
-        const Vertex verts[] = {
-            { q_min_x, q_max_y, 0.0f, 0.0f, 0.7f, 0.6f, 0.5f },
-            { q_max_x, q_max_y, 1.0f, 0.0f, 0.7f, 0.6f, 0.5f },
-            { q_max_x, q_min_y, 1.0f, 1.0f, 0.7f, 0.6f, 0.5f },
-            { q_min_x, q_min_y, 0.0f, 1.0f, 0.7f, 0.6f, 0.5f },
+        // const Vertex verts[] = {
+        //     { q_min_x, q_max_y, 0.0f, 0.0f, 0.7f, 0.6f, 0.5f },
+        //     { q_max_x, q_max_y, 1.0f, 0.0f, 0.7f, 0.6f, 0.5f },
+        //     { q_max_x, q_min_y, 1.0f, 1.0f, 0.7f, 0.6f, 0.5f },
+        //     { q_min_x, q_min_y, 0.0f, 1.0f, 0.7f, 0.6f, 0.5f },
+        // };
+
+        const Vertex verts[] =
+        {
+            { -0.5f,  0.5f, 0.0f, 0.0f, 0.7f, 0.6f, 0.5f },
+            {  0.5f,  0.5f, 1.0f, 0.0f, 0.7f, 0.6f, 0.5f },
+            { -0.5f,  0.5f, 1.0f, 1.0f, 0.7f, 0.6f, 0.5f },
+            { -0.5f, -0.5f, 0.0f, 1.0f, 0.7f, 0.6f, 0.5f },
         };
 
         void *vertex_buffer_data_ptr;
@@ -1040,6 +1091,7 @@ int main()
         if (result != VK_SUCCESS) fatal("Failed to map vertex buffer memory");
         memcpy(vertex_buffer_data_ptr, verts, (size_t)vertex_buffer_size);
         (void)vkUnmapMemory(vk_device, vk_vertex_buffer_memory);
+        #endif
 
         // Acquire next image
         uint32_t next_image_index;

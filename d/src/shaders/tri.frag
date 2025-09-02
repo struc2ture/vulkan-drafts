@@ -13,4 +13,5 @@ void main()
     outColor = t * vec4(fragColor, 1.0);
     //outColor = t;
     //outColor = vec4(t.r, t.g, t.b, 1.0);
+    //outColor = vec4(1.0, 1.0, 1.0, 1.0);
 }

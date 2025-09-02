@@ -1,0 +1,12 @@
+- Annotated vulkan state init
+- VulkanBasicallyEverything state - make not global
+- Introduce perspective projection lin math
+- Incrementally switch over to perspective projection:
+    - ortho quad -> no proj quad
+    -> persepctive proj quad, set z = -5.0f in shader
+    -> pass vec3 into shader for pos, set z in code
+    -> mvp = perspective * translate to -5.0f
+    -> cube verts: 8 verts, 36 indices
+- Construct cube verts:
+    - Check correct winding and tex-coord order
+- Enable back face culling: VkPipelineRasterizationStateCreateInfo.cullMode = VK_CULL_MODE_BACK_BIT, .frontFace = VK_FRONT_FACE_COUNTER_CLOCKWISE
