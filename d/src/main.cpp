@@ -86,38 +86,6 @@ struct Vertex
     float r, g, b;
 };
 
-// UNUSED
-struct VulkanState
-{
-    VkInstance instance;
-    VkSurfaceKHR surface;
-    VkPhysicalDevice physical_device;
-    uint32_t graphics_queue_family_index;
-    VkDevice device;
-    VkQueue graphics_queue;
-    VkSurfaceFormatKHR surface_format;
-    VkExtent2D swapchain_extent;
-    uint32_t image_count;
-    VkSwapchainKHR swapchain;
-    std::vector<VkImage> swapchain_images;
-    std::vector<VkImageView> swapchain_image_views;
-    VkRenderPass render_pass;
-    std::vector<VkFramebuffer> framebuffers;
-    VkShaderModule vert_shader_module;
-    VkShaderModule frag_shader_module;
-    VkPipelineLayout pipeline_layout;
-    VkPipeline pipeline;
-    VkBuffer vertex_buffer;
-    VkDeviceMemory vertex_buffer_memory;
-    VkCommandPool command_pool;
-    VkCommandBuffer command_buffer;
-    VkSemaphore image_available_semaphore;
-    VkSemaphore render_finished_semaphore;
-};
-
-// UNUSED
-static VulkanState g_VulkanState;
-
 struct VulkanBasicallyEverything
 {
     VkSwapchainKHR swapchain;
@@ -144,8 +112,6 @@ struct VulkanBasicallyEverything
     VkSemaphore image_available_semaphore;
     VkSemaphore render_finished_semaphore;
 };
-
-static VulkanBasicallyEverything g_TempVulkan;
 
 VkShaderModule create_shader_module(VkDevice device, const char *path)
 {
@@ -188,8 +154,10 @@ uint32_t find_memory_type(VkPhysicalDevice physical_device, uint32_t type_filter
     return 0;
 }
 
-void create_basically_everything(GLFWwindow *window, VkPhysicalDevice vk_physical_device, VkSurfaceKHR vk_surface, VkDevice vk_device, VkQueue vk_graphics_queue, VkCommandPool vk_command_pool)
+VulkanBasicallyEverything create_basically_everything(GLFWwindow *window, VkPhysicalDevice vk_physical_device, VkSurfaceKHR vk_surface, VkDevice vk_device, VkQueue vk_graphics_queue, VkCommandPool vk_command_pool)
 {
+    VulkanBasicallyEverything temp_vulkan = {};
+
     VkResult result;
 
     VkSurfaceCapabilitiesKHR capabilities;
@@ -205,7 +173,7 @@ void create_basically_everything(GLFWwindow *window, VkPhysicalDevice vk_physica
 
     VkSurfaceFormatKHR vk_surface_format = formats[0];
     assert(vk_surface_format.format == VK_FORMAT_B8G8R8A8_UNORM && vk_surface_format.colorSpace == VK_COLOR_SPACE_SRGB_NONLINEAR_KHR);
-    g_TempVulkan.swapchain_extent = capabilities.currentExtent;
+    temp_vulkan.swapchain_extent = capabilities.currentExtent;
     uint32_t vk_image_count = 2;
 
     VkSwapchainCreateInfoKHR swapchain_create_info = {};
@@ -214,7 +182,7 @@ void create_basically_everything(GLFWwindow *window, VkPhysicalDevice vk_physica
     swapchain_create_info.minImageCount = vk_image_count;
     swapchain_create_info.imageFormat = vk_surface_format.format;
     swapchain_create_info.imageColorSpace = vk_surface_format.colorSpace;
-    swapchain_create_info.imageExtent = g_TempVulkan.swapchain_extent;
+    swapchain_create_info.imageExtent = temp_vulkan.swapchain_extent;
     swapchain_create_info.imageArrayLayers = 1;
     swapchain_create_info.imageUsage = VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT;
     swapchain_create_info.imageSharingMode = VK_SHARING_MODE_EXCLUSIVE;
@@ -223,20 +191,20 @@ void create_basically_everything(GLFWwindow *window, VkPhysicalDevice vk_physica
     swapchain_create_info.presentMode = VK_PRESENT_MODE_FIFO_KHR; // vsync
     swapchain_create_info.clipped = VK_TRUE;
 
-    result = vkCreateSwapchainKHR(vk_device, &swapchain_create_info, NULL, &g_TempVulkan.swapchain);
+    result = vkCreateSwapchainKHR(vk_device, &swapchain_create_info, NULL, &temp_vulkan.swapchain);
     if (result != VK_SUCCESS) fatal("Failed to create swapchain");
 
     // Get swapchain images
     uint32_t actual_image_count;
-    result = vkGetSwapchainImagesKHR(vk_device, g_TempVulkan.swapchain, &actual_image_count, NULL);
+    result = vkGetSwapchainImagesKHR(vk_device, temp_vulkan.swapchain, &actual_image_count, NULL);
     if (result != VK_SUCCESS) fatal("Failed to get swapchain images");
     std::vector<VkImage> vk_swapchain_images(actual_image_count);
-    result = vkGetSwapchainImagesKHR(vk_device, g_TempVulkan.swapchain, &actual_image_count, vk_swapchain_images.data());
+    result = vkGetSwapchainImagesKHR(vk_device, temp_vulkan.swapchain, &actual_image_count, vk_swapchain_images.data());
     if (result != VK_SUCCESS) fatal("Failed to get swapchain images 2");
     assert(vk_image_count == actual_image_count);
 
     // Image views
-    g_TempVulkan.image_views.resize(vk_image_count);
+    temp_vulkan.image_views.resize(vk_image_count);
     for (uint32_t i = 0; i < vk_image_count; i++)
     {
         VkImageViewCreateInfo view_create_info = {};
@@ -256,7 +224,7 @@ void create_basically_everything(GLFWwindow *window, VkPhysicalDevice vk_physica
         view_create_info.subresourceRange.baseArrayLayer = 0;
         view_create_info.subresourceRange.layerCount = 1;
 
-        result = vkCreateImageView(vk_device, &view_create_info, NULL, &g_TempVulkan.image_views[i]);
+        result = vkCreateImageView(vk_device, &view_create_info, NULL, &temp_vulkan.image_views[i]);
         if (result != VK_SUCCESS) fatal("Failed to create image view");
     }
 
@@ -285,33 +253,34 @@ void create_basically_everything(GLFWwindow *window, VkPhysicalDevice vk_physica
     render_pass_create_info.subpassCount = 1;
     render_pass_create_info.pSubpasses = &subpass_description;
 
-    result = vkCreateRenderPass(vk_device, &render_pass_create_info, NULL, &g_TempVulkan.render_pass);
+    result = vkCreateRenderPass(vk_device, &render_pass_create_info, NULL, &temp_vulkan.render_pass);
     if (result != VK_SUCCESS) fatal("Failed to create render pass");
 
     // Framebuffers
-    g_TempVulkan.framebuffers.resize(vk_image_count);
+    temp_vulkan.framebuffers.resize(vk_image_count);
     for (uint32_t i = 0; i < vk_image_count; i++)
     {
-        VkImageView attachments[] = { g_TempVulkan.image_views[i] };
+        VkImageView attachments[] = { temp_vulkan.image_views[i] };
 
         VkFramebufferCreateInfo framebuffer_create_info = {};
         framebuffer_create_info.sType = VK_STRUCTURE_TYPE_FRAMEBUFFER_CREATE_INFO;
-        framebuffer_create_info.renderPass = g_TempVulkan.render_pass;
+        framebuffer_create_info.renderPass = temp_vulkan.render_pass;
         framebuffer_create_info.attachmentCount = 1;
         framebuffer_create_info.pAttachments = attachments;
-        framebuffer_create_info.width = g_TempVulkan.swapchain_extent.width;
-        framebuffer_create_info.height = g_TempVulkan.swapchain_extent.height;
+        framebuffer_create_info.width = temp_vulkan.swapchain_extent.width;
+        framebuffer_create_info.height = temp_vulkan.swapchain_extent.height;
         framebuffer_create_info.layers = 1;
 
-        result = vkCreateFramebuffer(vk_device, &framebuffer_create_info, NULL, &g_TempVulkan.framebuffers[i]);
+        result = vkCreateFramebuffer(vk_device, &framebuffer_create_info, NULL, &temp_vulkan.framebuffers[i]);
         if (result != VK_SUCCESS) fatal("Failed to create framebuffer");
     }
 
-    // Create uniform buffer for orthographic projection
+    // Create uniform buffer for projection
     int w, h;
     glfwGetWindowSize(window, &w, &h);
-    m4 ortho_proj = m4_proj_ortho(0.0f, w, 0.0f, h, -1.0f, 1.0f);
-    VkDeviceSize vk_uniform_buffer_size = sizeof(ortho_proj);
+    m4 proj = m4_proj_ortho(0.0f, w, 0.0f, h, -1.0f, 1.0f);
+    // m4 proj = m4_proj_perspective(deg_to_rad(60), (float)w / h, 0.1f, 100.0f);
+    VkDeviceSize vk_uniform_buffer_size = sizeof(proj);
 
     VkBufferCreateInfo uniform_buffer_create_info = {};
     uniform_buffer_create_info.sType = VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO;
@@ -319,12 +288,12 @@ void create_basically_everything(GLFWwindow *window, VkPhysicalDevice vk_physica
     uniform_buffer_create_info.usage = VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT;
     uniform_buffer_create_info.sharingMode = VK_SHARING_MODE_EXCLUSIVE;
 
-    result = vkCreateBuffer(vk_device, &uniform_buffer_create_info, nullptr, &g_TempVulkan.uniform_buffer);
+    result = vkCreateBuffer(vk_device, &uniform_buffer_create_info, nullptr, &temp_vulkan.uniform_buffer);
     if (result != VK_SUCCESS) fatal("Failed to create uniform buffer");
 
     // Allocate memory for uniform buffer
     VkMemoryRequirements uniform_buffer_memory_requirements;
-    (void)vkGetBufferMemoryRequirements(vk_device, g_TempVulkan.uniform_buffer, &uniform_buffer_memory_requirements);
+    (void)vkGetBufferMemoryRequirements(vk_device, temp_vulkan.uniform_buffer, &uniform_buffer_memory_requirements);
 
     VkMemoryAllocateInfo uniform_buffer_memory_allocate_info = {};
     uniform_buffer_memory_allocate_info.sType = VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO;
@@ -335,18 +304,18 @@ void create_basically_everything(GLFWwindow *window, VkPhysicalDevice vk_physica
         VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT
     );
 
-    result = vkAllocateMemory(vk_device, &uniform_buffer_memory_allocate_info, NULL, &g_TempVulkan.uniform_buffer_memory);
+    result = vkAllocateMemory(vk_device, &uniform_buffer_memory_allocate_info, NULL, &temp_vulkan.uniform_buffer_memory);
     if (result != VK_SUCCESS) fatal("Failed to allocate memory for uniform buffer");
 
-    result = vkBindBufferMemory(vk_device, g_TempVulkan.uniform_buffer, g_TempVulkan.uniform_buffer_memory, 0);
+    result = vkBindBufferMemory(vk_device, temp_vulkan.uniform_buffer, temp_vulkan.uniform_buffer_memory, 0);
     if (result != VK_SUCCESS) fatal("Failed to bind memory to uniform buffer");
 
     // Upload data to the uniform buffer
     void *uniform_data_ptr;
-    result = vkMapMemory(vk_device, g_TempVulkan.uniform_buffer_memory, 0, vk_uniform_buffer_size, 0, &uniform_data_ptr);
+    result = vkMapMemory(vk_device, temp_vulkan.uniform_buffer_memory, 0, vk_uniform_buffer_size, 0, &uniform_data_ptr);
     if (result != VK_SUCCESS) fatal("Failed to map uniform buffer memory");
-    memcpy(uniform_data_ptr, &ortho_proj, (size_t)vk_uniform_buffer_size);
-    (void)vkUnmapMemory(vk_device, g_TempVulkan.uniform_buffer_memory);
+    memcpy(uniform_data_ptr, &proj, (size_t)vk_uniform_buffer_size);
+    (void)vkUnmapMemory(vk_device, temp_vulkan.uniform_buffer_memory);
 
     // Texture
     int tex_w, tex_h, tex_ch;
@@ -409,12 +378,12 @@ void create_basically_everything(GLFWwindow *window, VkPhysicalDevice vk_physica
     texture_image_create_info.sharingMode = VK_SHARING_MODE_EXCLUSIVE;
     texture_image_create_info.initialLayout = VK_IMAGE_LAYOUT_UNDEFINED;
 
-    result = vkCreateImage(vk_device, &texture_image_create_info, NULL, &g_TempVulkan.texture_image);
+    result = vkCreateImage(vk_device, &texture_image_create_info, NULL, &temp_vulkan.texture_image);
     if (result != VK_SUCCESS) fatal("Failed to create texture image");
 
     // Allocate memory for the texture image
     VkMemoryRequirements texture_image_memory_requirements;
-    (void)vkGetImageMemoryRequirements(vk_device, g_TempVulkan.texture_image, &texture_image_memory_requirements);
+    (void)vkGetImageMemoryRequirements(vk_device, temp_vulkan.texture_image, &texture_image_memory_requirements);
 
     VkMemoryAllocateInfo texture_image_memory_allocate_info = {};
     texture_image_memory_allocate_info.sType = VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO;
@@ -425,10 +394,10 @@ void create_basically_everything(GLFWwindow *window, VkPhysicalDevice vk_physica
         VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT
     );
 
-    result = vkAllocateMemory(vk_device, &texture_image_memory_allocate_info, NULL, &g_TempVulkan.texture_image_memory);
+    result = vkAllocateMemory(vk_device, &texture_image_memory_allocate_info, NULL, &temp_vulkan.texture_image_memory);
     if (result != VK_SUCCESS) fatal("Failed to allocate memory for texture image");
 
-    result = vkBindImageMemory(vk_device, g_TempVulkan.texture_image, g_TempVulkan.texture_image_memory, 0);
+    result = vkBindImageMemory(vk_device, temp_vulkan.texture_image, temp_vulkan.texture_image_memory, 0);
     if (result != VK_SUCCESS) fatal("Failed to bind memory to texture image");
 
     // Command buffer
@@ -456,7 +425,7 @@ void create_basically_everything(GLFWwindow *window, VkPhysicalDevice vk_physica
     texture_image_memory_barrier1.newLayout = VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL;
     texture_image_memory_barrier1.srcAccessMask = 0;
     texture_image_memory_barrier1.dstAccessMask = VK_ACCESS_TRANSFER_WRITE_BIT;
-    texture_image_memory_barrier1.image = g_TempVulkan.texture_image;
+    texture_image_memory_barrier1.image = temp_vulkan.texture_image;
     texture_image_memory_barrier1.subresourceRange = {};
     texture_image_memory_barrier1.subresourceRange.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
     texture_image_memory_barrier1.subresourceRange.baseMipLevel = 0;
@@ -489,7 +458,7 @@ void create_basically_everything(GLFWwindow *window, VkPhysicalDevice vk_physica
     vkCmdCopyBufferToImage(
         vk_texture_command_buffer,
         vk_texture_staging_buffer,
-        g_TempVulkan.texture_image,
+        temp_vulkan.texture_image,
         VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
         1,
         &buffer_image_copy
@@ -534,7 +503,7 @@ void create_basically_everything(GLFWwindow *window, VkPhysicalDevice vk_physica
     // Create texture image view
     VkImageViewCreateInfo texture_image_view_create_info = {};
     texture_image_view_create_info.sType = VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO;
-    texture_image_view_create_info.image = g_TempVulkan.texture_image;
+    texture_image_view_create_info.image = temp_vulkan.texture_image;
     texture_image_view_create_info.viewType = VK_IMAGE_VIEW_TYPE_2D;
     texture_image_view_create_info.format = VK_FORMAT_R8G8B8A8_UNORM;
     texture_image_view_create_info.subresourceRange = {};
@@ -544,7 +513,7 @@ void create_basically_everything(GLFWwindow *window, VkPhysicalDevice vk_physica
     texture_image_view_create_info.subresourceRange.baseArrayLayer = 0;
     texture_image_view_create_info.subresourceRange.layerCount = 1;
 
-    result = vkCreateImageView(vk_device, &texture_image_view_create_info, NULL, &g_TempVulkan.texture_image_view);
+    result = vkCreateImageView(vk_device, &texture_image_view_create_info, NULL, &temp_vulkan.texture_image_view);
     if (result != VK_SUCCESS) fatal("Failed to create texture image view");
 
     VkSamplerCreateInfo texture_sampler_create_info = {};
@@ -561,7 +530,7 @@ void create_basically_everything(GLFWwindow *window, VkPhysicalDevice vk_physica
     texture_sampler_create_info.compareEnable = VK_FALSE;
     texture_sampler_create_info.mipmapMode = VK_SAMPLER_MIPMAP_MODE_LINEAR;
 
-    result = vkCreateSampler(vk_device, &texture_sampler_create_info, NULL, &g_TempVulkan.texture_sampler);
+    result = vkCreateSampler(vk_device, &texture_sampler_create_info, NULL, &temp_vulkan.texture_sampler);
     if (result != VK_SUCCESS) fatal("Failed to create texture sampler");
 
     // Descriptor set layout
@@ -588,7 +557,7 @@ void create_basically_everything(GLFWwindow *window, VkPhysicalDevice vk_physica
     descriptor_set_layout_create_info.bindingCount = 2;
     descriptor_set_layout_create_info.pBindings = descriptor_set_layout_bindings;
 
-    result = vkCreateDescriptorSetLayout(vk_device, &descriptor_set_layout_create_info, NULL, &g_TempVulkan.descriptor_set_layout);
+    result = vkCreateDescriptorSetLayout(vk_device, &descriptor_set_layout_create_info, NULL, &temp_vulkan.descriptor_set_layout);
     if (result != VK_SUCCESS) fatal("Failed to create descriptor set layout");
 
     // Descriptor pool
@@ -604,28 +573,28 @@ void create_basically_everything(GLFWwindow *window, VkPhysicalDevice vk_physica
     decriptor_pool_create_info.pPoolSizes = descriptor_pool_sizes;
     decriptor_pool_create_info.maxSets = 1;
 
-    result = vkCreateDescriptorPool(vk_device, &decriptor_pool_create_info, NULL, &g_TempVulkan.descriptor_pool);
+    result = vkCreateDescriptorPool(vk_device, &decriptor_pool_create_info, NULL, &temp_vulkan.descriptor_pool);
     if (result != VK_SUCCESS) fatal("Failed to create descriptor pool");
 
     // Allocate descriptor sets
     VkDescriptorSetAllocateInfo descriptor_set_allocate_info = {};
     descriptor_set_allocate_info.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO;
-    descriptor_set_allocate_info.descriptorPool = g_TempVulkan.descriptor_pool;
+    descriptor_set_allocate_info.descriptorPool = temp_vulkan.descriptor_pool;
     descriptor_set_allocate_info.descriptorSetCount = 1;
-    descriptor_set_allocate_info.pSetLayouts = &g_TempVulkan.descriptor_set_layout;
+    descriptor_set_allocate_info.pSetLayouts = &temp_vulkan.descriptor_set_layout;
 
-    result = vkAllocateDescriptorSets(vk_device, &descriptor_set_allocate_info, &g_TempVulkan.descriptor_set);
+    result = vkAllocateDescriptorSets(vk_device, &descriptor_set_allocate_info, &temp_vulkan.descriptor_set);
     if (result != VK_SUCCESS) fatal("Failed to allocate descriptor set");
 
     // Update descriptor sets to point binding 0 to the uniform buffer
     VkDescriptorBufferInfo uniform_buffer_descriptor_buffer_info = {};
-    uniform_buffer_descriptor_buffer_info.buffer = g_TempVulkan.uniform_buffer;
+    uniform_buffer_descriptor_buffer_info.buffer = temp_vulkan.uniform_buffer;
     uniform_buffer_descriptor_buffer_info.offset = 0;
     uniform_buffer_descriptor_buffer_info.range = vk_uniform_buffer_size;
 
     VkWriteDescriptorSet uniform_buffer_write_descriptor_set = {};
     uniform_buffer_write_descriptor_set.sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
-    uniform_buffer_write_descriptor_set.dstSet = g_TempVulkan.descriptor_set;
+    uniform_buffer_write_descriptor_set.dstSet = temp_vulkan.descriptor_set;
     uniform_buffer_write_descriptor_set.dstBinding = 0;
     uniform_buffer_write_descriptor_set.dstArrayElement = 0;
     uniform_buffer_write_descriptor_set.descriptorType = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
@@ -637,12 +606,12 @@ void create_basically_everything(GLFWwindow *window, VkPhysicalDevice vk_physica
     // Update descriptor sets to point binding 1 to the texture sampler
     VkDescriptorImageInfo texture_sampler_descriptor_image_info = {};
     texture_sampler_descriptor_image_info.imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
-    texture_sampler_descriptor_image_info.imageView = g_TempVulkan.texture_image_view;
-    texture_sampler_descriptor_image_info.sampler = g_TempVulkan.texture_sampler;
+    texture_sampler_descriptor_image_info.imageView = temp_vulkan.texture_image_view;
+    texture_sampler_descriptor_image_info.sampler = temp_vulkan.texture_sampler;
 
     VkWriteDescriptorSet texture_sampler_write_descriptor_set = {};
     texture_sampler_write_descriptor_set.sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
-    texture_sampler_write_descriptor_set.dstSet = g_TempVulkan.descriptor_set;
+    texture_sampler_write_descriptor_set.dstSet = temp_vulkan.descriptor_set;
     texture_sampler_write_descriptor_set.dstBinding = 1;
     texture_sampler_write_descriptor_set.dstArrayElement = 0;
     texture_sampler_write_descriptor_set.descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
@@ -733,8 +702,8 @@ void create_basically_everything(GLFWwindow *window, VkPhysicalDevice vk_physica
     pipeline_layout_create_info.sType = VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO;
     pipeline_layout_create_info.setLayoutCount = 1;
     // Reference the descriptor set layout
-    pipeline_layout_create_info.pSetLayouts = &g_TempVulkan.descriptor_set_layout;
-    result = vkCreatePipelineLayout(vk_device, &pipeline_layout_create_info, nullptr, &g_TempVulkan.pipeline_layout);
+    pipeline_layout_create_info.pSetLayouts = &temp_vulkan.descriptor_set_layout;
+    result = vkCreatePipelineLayout(vk_device, &pipeline_layout_create_info, nullptr, &temp_vulkan.pipeline_layout);
     if (result != VK_SUCCESS) fatal("Failed to create pipeline layout");
     
     VkGraphicsPipelineCreateInfo graphics_pipeline_create_info = {};
@@ -747,11 +716,11 @@ void create_basically_everything(GLFWwindow *window, VkPhysicalDevice vk_physica
     graphics_pipeline_create_info.pRasterizationState = &pipeline_rasterization_state_create_info;
     graphics_pipeline_create_info.pMultisampleState = &pipeline_multisample_state_create_info;
     graphics_pipeline_create_info.pColorBlendState = &pipeline_color_blend_state_create_info;
-    graphics_pipeline_create_info.layout = g_TempVulkan.pipeline_layout;
-    graphics_pipeline_create_info.renderPass = g_TempVulkan.render_pass;
+    graphics_pipeline_create_info.layout = temp_vulkan.pipeline_layout;
+    graphics_pipeline_create_info.renderPass = temp_vulkan.render_pass;
     graphics_pipeline_create_info.subpass = 0;
     
-    result = vkCreateGraphicsPipelines(vk_device, VK_NULL_HANDLE, 1, &graphics_pipeline_create_info, nullptr, &g_TempVulkan.pipeline);
+    result = vkCreateGraphicsPipelines(vk_device, VK_NULL_HANDLE, 1, &graphics_pipeline_create_info, nullptr, &temp_vulkan.pipeline);
     if (result != VK_SUCCESS) fatal("Failed to create graphics pipeline");
 
     (void)vkDestroyShaderModule(vk_device, vk_vert_shader_module, nullptr);
@@ -761,42 +730,44 @@ void create_basically_everything(GLFWwindow *window, VkPhysicalDevice vk_physica
     VkSemaphoreCreateInfo semaphore_create_info = {};
     semaphore_create_info.sType = VK_STRUCTURE_TYPE_SEMAPHORE_CREATE_INFO;
 
-    result = vkCreateSemaphore(vk_device, &semaphore_create_info, NULL, &g_TempVulkan.image_available_semaphore);
+    result = vkCreateSemaphore(vk_device, &semaphore_create_info, NULL, &temp_vulkan.image_available_semaphore);
     if (result != VK_SUCCESS) fatal("Failed to create image available semaphore");
-    result = vkCreateSemaphore(vk_device, &semaphore_create_info, NULL, &g_TempVulkan.render_finished_semaphore);
+    result = vkCreateSemaphore(vk_device, &semaphore_create_info, NULL, &temp_vulkan.render_finished_semaphore);
     if (result != VK_SUCCESS) fatal("Failed to create render finished semaphore");
+
+    return temp_vulkan;
 }
 
-void destroy_basically_everything(VkDevice vk_device)
+void destroy_basically_everything(VulkanBasicallyEverything *temp_vulkan, VkDevice vk_device)
 {
-    (void)vkDestroySampler(vk_device, g_TempVulkan.texture_sampler, NULL);
+    (void)vkDestroySampler(vk_device, temp_vulkan->texture_sampler, NULL);
 
-    (void)vkDestroyImage(vk_device, g_TempVulkan.texture_image, NULL);
-    (void)vkFreeMemory(vk_device, g_TempVulkan.texture_image_memory, NULL);
+    (void)vkDestroyImage(vk_device, temp_vulkan->texture_image, NULL);
+    (void)vkFreeMemory(vk_device, temp_vulkan->texture_image_memory, NULL);
     
-    (void)vkDestroyImageView(vk_device, g_TempVulkan.texture_image_view, NULL);
+    (void)vkDestroyImageView(vk_device, temp_vulkan->texture_image_view, NULL);
 
-    (void)vkDestroyDescriptorPool(vk_device, g_TempVulkan.descriptor_pool, NULL);
-    (void)vkDestroyDescriptorSetLayout(vk_device, g_TempVulkan.descriptor_set_layout, NULL);
+    (void)vkDestroyDescriptorPool(vk_device, temp_vulkan->descriptor_pool, NULL);
+    (void)vkDestroyDescriptorSetLayout(vk_device, temp_vulkan->descriptor_set_layout, NULL);
 
-    (void)vkFreeMemory(vk_device, g_TempVulkan.uniform_buffer_memory, NULL);
-    (void)vkDestroyBuffer(vk_device, g_TempVulkan.uniform_buffer, NULL);
+    (void)vkFreeMemory(vk_device, temp_vulkan->uniform_buffer_memory, NULL);
+    (void)vkDestroyBuffer(vk_device, temp_vulkan->uniform_buffer, NULL);
 
-    (void)vkDestroyPipeline(vk_device, g_TempVulkan.pipeline, nullptr);
-    (void)vkDestroyPipelineLayout(vk_device, g_TempVulkan.pipeline_layout, nullptr);
-    for (auto framebuffer: g_TempVulkan.framebuffers)
+    (void)vkDestroyPipeline(vk_device, temp_vulkan->pipeline, nullptr);
+    (void)vkDestroyPipelineLayout(vk_device, temp_vulkan->pipeline_layout, nullptr);
+    for (auto framebuffer: temp_vulkan->framebuffers)
     {
         (void)vkDestroyFramebuffer(vk_device, framebuffer, nullptr);
     }
-    (void)vkDestroyRenderPass(vk_device, g_TempVulkan.render_pass, nullptr);
-    for (auto image_view: g_TempVulkan.image_views)
+    (void)vkDestroyRenderPass(vk_device, temp_vulkan->render_pass, nullptr);
+    for (auto image_view: temp_vulkan->image_views)
     {
         (void)vkDestroyImageView(vk_device, image_view, nullptr);
     }
-    (void)vkDestroySwapchainKHR(vk_device, g_TempVulkan.swapchain, nullptr);
+    (void)vkDestroySwapchainKHR(vk_device, temp_vulkan->swapchain, nullptr);
 
-    (void)vkDestroySemaphore(vk_device, g_TempVulkan.image_available_semaphore, NULL);
-    (void)vkDestroySemaphore(vk_device, g_TempVulkan.render_finished_semaphore, NULL);
+    (void)vkDestroySemaphore(vk_device, temp_vulkan->image_available_semaphore, NULL);
+    (void)vkDestroySemaphore(vk_device, temp_vulkan->render_finished_semaphore, NULL);
 }
 
 int main()
@@ -895,6 +866,7 @@ int main()
     (void)vkGetDeviceQueue(vk_device,vk_graphics_queue_family_index, 0, &vk_graphics_queue);
 
     // Vertex buffer
+    // Ortho quad
     int w_int, h_int;
     glfwGetWindowSize(window, &w_int, &h_int);
     float w = w_int;
@@ -911,6 +883,19 @@ int main()
         { q_max_x, q_min_y, 1.0f, 1.0f, 0.7f, 0.6f, 0.5f },
         { q_min_x, q_min_y, 0.0f, 1.0f, 0.7f, 0.6f, 0.5f },
     };
+
+    // const Vertex verts[] = {
+    //     { -0.5f, -0.5f, 0.0f, 0.0f, 0.7f, 0.6f, 0.5f },
+    //     {  0.5f, -0.5f, 1.0f, 0.0f, 0.7f, 0.6f, 0.5f },
+    //     {  0.5f,  0.5f, 1.0f, 1.0f, 0.7f, 0.6f, 0.5f },
+    //     { -0.5f,  0.5f, 0.0f, 1.0f, 0.7f, 0.6f, 0.5f },
+    // };
+
+    // const Vertex verts[] =
+    // {
+    //     { -0.5f, -0.5f, -0.5f },
+    //     { -0.5f, -0.5f, -0.5f },
+    // };
 
     VkDeviceSize vertex_buffer_size = sizeof(verts);
 
@@ -1015,7 +1000,7 @@ int main()
     result = vkAllocateCommandBuffers(vk_device, &command_buffer_allocate_info, &vk_command_buffer);
     if (result != VK_SUCCESS) fatal("Failed to allocate command buffers");
 
-    create_basically_everything(window, vk_physical_device, vk_surface, vk_device, vk_graphics_queue, vk_command_pool);
+    VulkanBasicallyEverything temp_vulkan = create_basically_everything(window, vk_physical_device, vk_surface, vk_device, vk_graphics_queue, vk_command_pool);
 
     bool recreate_everything = false;
 
@@ -1026,9 +1011,9 @@ int main()
         if (recreate_everything)
         {
             vkDeviceWaitIdle(vk_device);
-            destroy_basically_everything(vk_device);
-            create_basically_everything(window, vk_physical_device, vk_surface, vk_device, vk_graphics_queue, vk_command_pool);
-            trace("Recreated everything. Swapchain extent: %ux%u", g_TempVulkan.swapchain_extent.width, g_TempVulkan.swapchain_extent.height);
+            destroy_basically_everything(&temp_vulkan, vk_device);
+            temp_vulkan = create_basically_everything(window, vk_physical_device, vk_surface, vk_device, vk_graphics_queue, vk_command_pool);
+            trace("Recreated everything. Swapchain extent: %ux%u", temp_vulkan.swapchain_extent.width, temp_vulkan.swapchain_extent.height);
             recreate_everything = false;
         }
 
@@ -1058,7 +1043,7 @@ int main()
 
         // Acquire next image
         uint32_t next_image_index;
-        result = vkAcquireNextImageKHR(vk_device, g_TempVulkan.swapchain, UINT64_MAX, g_TempVulkan.image_available_semaphore, VK_NULL_HANDLE, &next_image_index);
+        result = vkAcquireNextImageKHR(vk_device, temp_vulkan.swapchain, UINT64_MAX, temp_vulkan.image_available_semaphore, VK_NULL_HANDLE, &next_image_index);
         if (result == VK_SUBOPTIMAL_KHR || result == VK_ERROR_OUT_OF_DATE_KHR)
         {
             recreate_everything = true;
@@ -1079,11 +1064,11 @@ int main()
         clear_value.color = { { 1.0f, 0.0f, 0.0f, 1.0f } };
         VkRect2D render_area = {};
         render_area.offset = (VkOffset2D){0, 0};
-        render_area.extent = g_TempVulkan.swapchain_extent;
+        render_area.extent = temp_vulkan.swapchain_extent;
         VkRenderPassBeginInfo render_pass_begin_info = {};
         render_pass_begin_info.sType = VK_STRUCTURE_TYPE_RENDER_PASS_BEGIN_INFO;
-        render_pass_begin_info.renderPass = g_TempVulkan.render_pass;
-        render_pass_begin_info.framebuffer = g_TempVulkan.framebuffers[next_image_index]; // render pass to the right frame buffer index
+        render_pass_begin_info.renderPass = temp_vulkan.render_pass;
+        render_pass_begin_info.framebuffer = temp_vulkan.framebuffers[next_image_index]; // render pass to the right frame buffer index
         render_pass_begin_info.renderArea = render_area;
         render_pass_begin_info.clearValueCount = 1;
         render_pass_begin_info.pClearValues = &clear_value;
@@ -1093,13 +1078,13 @@ int main()
         vkCmdBindDescriptorSets(
             vk_command_buffer,
             VK_PIPELINE_BIND_POINT_GRAPHICS,
-            g_TempVulkan.pipeline_layout,
+            temp_vulkan.pipeline_layout,
             0, // firstSet
-            1, &g_TempVulkan.descriptor_set,
+            1, &temp_vulkan.descriptor_set,
             0, NULL
         );
         // Bind pipeline that is used for drawing triangle
-        (void)vkCmdBindPipeline(vk_command_buffer, VK_PIPELINE_BIND_POINT_GRAPHICS, g_TempVulkan.pipeline);
+        (void)vkCmdBindPipeline(vk_command_buffer, VK_PIPELINE_BIND_POINT_GRAPHICS, temp_vulkan.pipeline);
         VkDeviceSize offsets[] = { 0 };
         // Bind vertex buffer that contains triangle vertices
         (void)vkCmdBindVertexBuffers(vk_command_buffer, 0, 1, &vk_vertex_buffer, offsets);
@@ -1117,12 +1102,12 @@ int main()
         VkSubmitInfo submit_info = {};
         submit_info.sType = VK_STRUCTURE_TYPE_SUBMIT_INFO;
         submit_info.waitSemaphoreCount = 1;
-        submit_info.pWaitSemaphores = &g_TempVulkan.image_available_semaphore;
+        submit_info.pWaitSemaphores = &temp_vulkan.image_available_semaphore;
         submit_info.pWaitDstStageMask = wait_destination_stage_mask;
         submit_info.commandBufferCount = 1;
         submit_info.pCommandBuffers = &vk_command_buffer;
         submit_info.signalSemaphoreCount = 1;
-        submit_info.pSignalSemaphores = &g_TempVulkan.render_finished_semaphore;
+        submit_info.pSignalSemaphores = &temp_vulkan.render_finished_semaphore;
 
         result = vkQueueSubmit(vk_graphics_queue, 1, &submit_info, VK_NULL_HANDLE);
         if (result != VK_SUCCESS) fatal("Failed to submit command buffer to queue");
@@ -1131,9 +1116,9 @@ int main()
         VkPresentInfoKHR present_info = {};
         present_info.sType = VK_STRUCTURE_TYPE_PRESENT_INFO_KHR;
         present_info.waitSemaphoreCount = 1;
-        present_info.pWaitSemaphores = &g_TempVulkan.render_finished_semaphore;
+        present_info.pWaitSemaphores = &temp_vulkan.render_finished_semaphore;
         present_info.swapchainCount = 1;
-        present_info.pSwapchains = &g_TempVulkan.swapchain;
+        present_info.pSwapchains = &temp_vulkan.swapchain;
         present_info.pImageIndices = &next_image_index;
         result = vkQueuePresentKHR(vk_graphics_queue, &present_info);
         if (result == VK_SUBOPTIMAL_KHR || result == VK_ERROR_OUT_OF_DATE_KHR)
@@ -1156,7 +1141,7 @@ int main()
     (void)vkFreeMemory(vk_device, vk_vertex_buffer_memory, NULL);
     (void)vkDestroyBuffer(vk_device, vk_vertex_buffer, NULL);
 
-    destroy_basically_everything(vk_device);
+    destroy_basically_everything(&temp_vulkan, vk_device);
 
     (void)vkDestroyDevice(vk_device, nullptr);
     (void)vkDestroySurfaceKHR(vk_instance, vk_surface, nullptr);
