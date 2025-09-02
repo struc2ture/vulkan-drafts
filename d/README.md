@@ -10,3 +10,12 @@
 - Construct cube verts:
     - Check correct winding and tex-coord order
 - Enable back face culling: VkPipelineRasterizationStateCreateInfo.cullMode = VK_CULL_MODE_BACK_BIT, .frontFace = VK_FRONT_FACE_COUNTER_CLOCKWISE
+- Depth buffer:
+    - Create image and allocate and bind memory for it
+    - Create image view
+    - Update framebuffer to have 2 attachments: swapchain image and depth buffer
+    - Update render pass to include depth attachment; and in subpass - attachment reference
+    - Update command buffer recording to clear depth buffer when beginning render pass -- include another clear value
+    - Enable depth test in pipeline: pass VkPipelineDepthStencilStateCreateInfo in graphics_pipeline_create_info.pDepthStencilState
+    - Check depth buffer (disable culling to check)
+    - Destroy depth buffer image and view and free memoryon cleanup

@@ -61,7 +61,7 @@ static m4 m4_proj_perspective(float fov, float aspect, float znear, float zfar)
 
     m4 m = {};
     m.d[0] = 1.0f / (aspect * tan_half);
-    m.d[5] = -1.0f / tan_half;
+    m.d[5] = -1.0f / tan_half; // flip Y axis, as Vulkan flips the final framebuffer
     m.d[10] = -(zfar + znear) / (zfar - znear);
     m.d[11] = -1.0f;
     m.d[14] = -(2.0f * zfar * znear) / (zfar - znear);

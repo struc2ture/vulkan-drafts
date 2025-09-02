@@ -3,7 +3,14 @@
  * 2. Create swapchain
  * 3. Get swapchain images
  * 4. Create image views for swapchain images
- * 5. Create framebuffers with image view attachments
+ * 4. Depth buffer:
+ *     a. Create new image
+ *     b. Allocate and bind memory
+ *     c. Create depth buffer image view
+ * 4. Create render pass:
+ *     a. Color attachment and reference
+ *     b. Depth attachment and reference
+ * 5. Create framebuffers with image view attachments (swapchain images and depth buffer), referencing the render pass
  * 6. Create uniform buffer for MVP
  * 7. Texture:
  *     a. Upload texture to staging buffer
@@ -93,6 +100,11 @@ struct VulkanBasicallyEverything
     VkSwapchainKHR swapchain;
     VkExtent2D swapchain_extent;
     std::vector<VkImageView> image_views;
+
+    VkImage depth_buffer_image;
+    VkDeviceMemory depth_buffer_memory;
+    VkImageView depth_buffer_image_view;
+
     std::vector<VkFramebuffer> framebuffers;
     VkRenderPass render_pass;
 
@@ -205,7 +217,7 @@ VulkanBasicallyEverything create_basically_everything(GLFWwindow *window, VkPhys
     if (result != VK_SUCCESS) fatal("Failed to get swapchain images 2");
     assert(vk_image_count == actual_image_count);
 
-    // Image views
+    // Swapchain images -- image views
     temp_vulkan.image_views.resize(vk_image_count);
     for (uint32_t i = 0; i < vk_image_count; i++)
     {
@@ -230,6 +242,54 @@ VulkanBasicallyEverything create_basically_everything(GLFWwindow *window, VkPhys
         if (result != VK_SUCCESS) fatal("Failed to create image view");
     }
 
+    // Depth buffer image
+    VkFormat depth_format = VK_FORMAT_D32_SFLOAT;
+    VkImageCreateInfo depth_buffer_image_create_info = {};
+    depth_buffer_image_create_info.sType = VK_STRUCTURE_TYPE_IMAGE_CREATE_INFO;
+    depth_buffer_image_create_info.imageType = VK_IMAGE_TYPE_2D;
+    depth_buffer_image_create_info.extent.width = temp_vulkan.swapchain_extent.width;
+    depth_buffer_image_create_info.extent.height = temp_vulkan.swapchain_extent.height;
+    depth_buffer_image_create_info.extent.depth = 1;
+    depth_buffer_image_create_info.mipLevels = 1;
+    depth_buffer_image_create_info.arrayLayers = 1;
+    depth_buffer_image_create_info.format = depth_format;
+    depth_buffer_image_create_info.tiling = VK_IMAGE_TILING_OPTIMAL;
+    depth_buffer_image_create_info.initialLayout = VK_IMAGE_LAYOUT_UNDEFINED;
+    depth_buffer_image_create_info.usage = VK_IMAGE_USAGE_DEPTH_STENCIL_ATTACHMENT_BIT;
+    depth_buffer_image_create_info.samples = VK_SAMPLE_COUNT_1_BIT;
+    depth_buffer_image_create_info.sharingMode = VK_SHARING_MODE_EXCLUSIVE;
+
+    result = vkCreateImage(vk_device, &depth_buffer_image_create_info, NULL, &temp_vulkan.depth_buffer_image);
+    if (result != VK_SUCCESS) fatal("Failed to create depth buffer image");
+
+    VkMemoryRequirements depth_buffer_memory_requirements;
+    (void)vkGetImageMemoryRequirements(vk_device, temp_vulkan.depth_buffer_image, &depth_buffer_memory_requirements);
+
+    VkMemoryAllocateInfo depth_buffer_memory_allocate_info = {};
+    depth_buffer_memory_allocate_info.sType = VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO;
+    depth_buffer_memory_allocate_info.allocationSize = depth_buffer_memory_requirements.size;
+    depth_buffer_memory_allocate_info.memoryTypeIndex = find_memory_type(vk_physical_device, depth_buffer_memory_requirements.memoryTypeBits, VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT);
+
+    result = vkAllocateMemory(vk_device, &depth_buffer_memory_allocate_info, NULL, &temp_vulkan.depth_buffer_memory);
+    if (result != VK_SUCCESS) fatal("Failed to allocate memory for depth buffer image");
+
+    result = vkBindImageMemory(vk_device, temp_vulkan.depth_buffer_image, temp_vulkan.depth_buffer_memory, 0);
+    if (result != VK_SUCCESS) fatal("Failed to bind memory for depth buffer image");
+
+    VkImageViewCreateInfo depth_buffer_image_view_create_info = {};
+    depth_buffer_image_view_create_info.sType = VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO;
+    depth_buffer_image_view_create_info.image = temp_vulkan.depth_buffer_image;
+    depth_buffer_image_view_create_info.viewType = VK_IMAGE_VIEW_TYPE_2D;
+    depth_buffer_image_view_create_info.format = depth_format;
+    depth_buffer_image_view_create_info.subresourceRange.aspectMask = VK_IMAGE_ASPECT_DEPTH_BIT;
+    depth_buffer_image_view_create_info.subresourceRange.baseMipLevel = 0;
+    depth_buffer_image_view_create_info.subresourceRange.levelCount = 1;
+    depth_buffer_image_view_create_info.subresourceRange.baseArrayLayer = 0;
+    depth_buffer_image_view_create_info.subresourceRange.layerCount = 1;
+
+    result = vkCreateImageView(vk_device, &depth_buffer_image_view_create_info, NULL, &temp_vulkan.depth_buffer_image_view);
+    if (result != VK_SUCCESS) fatal("Failed to create depth buffer image view.");
+
     // Render pass
     VkAttachmentDescription color_attachment_description = {};
     color_attachment_description.format = vk_surface_format.format;
@@ -243,15 +303,31 @@ VulkanBasicallyEverything create_basically_everything(GLFWwindow *window, VkPhys
     color_attachment_reference.attachment = 0;
     color_attachment_reference.layout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
 
+    VkAttachmentDescription depth_attachment_description = {};
+    depth_attachment_description.format = depth_format;
+    depth_attachment_description.samples = VK_SAMPLE_COUNT_1_BIT;
+    depth_attachment_description.loadOp = VK_ATTACHMENT_LOAD_OP_CLEAR;
+    depth_attachment_description.storeOp = VK_ATTACHMENT_STORE_OP_DONT_CARE;
+    depth_attachment_description.stencilLoadOp = VK_ATTACHMENT_LOAD_OP_DONT_CARE;
+    depth_attachment_description.stencilStoreOp = VK_ATTACHMENT_STORE_OP_DONT_CARE;
+    depth_attachment_description.initialLayout = VK_IMAGE_LAYOUT_UNDEFINED;
+    depth_attachment_description.finalLayout = VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL;
+
+    VkAttachmentReference depth_attachment_reference = {};
+    depth_attachment_reference.attachment = 1; // index in pAttachments
+    depth_attachment_reference.layout = VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL;
+
     VkSubpassDescription subpass_description = {};
     subpass_description.pipelineBindPoint = VK_PIPELINE_BIND_POINT_GRAPHICS;
     subpass_description.colorAttachmentCount = 1;
     subpass_description.pColorAttachments = &color_attachment_reference;
+    subpass_description.pDepthStencilAttachment = &depth_attachment_reference;
 
+    VkAttachmentDescription render_pass_attachments[] = { color_attachment_description, depth_attachment_description };
     VkRenderPassCreateInfo render_pass_create_info = {};
     render_pass_create_info.sType = VK_STRUCTURE_TYPE_RENDER_PASS_CREATE_INFO;
-    render_pass_create_info.attachmentCount = 1;
-    render_pass_create_info.pAttachments = &color_attachment_description;
+    render_pass_create_info.attachmentCount = array_count(render_pass_attachments);
+    render_pass_create_info.pAttachments = render_pass_attachments;
     render_pass_create_info.subpassCount = 1;
     render_pass_create_info.pSubpasses = &subpass_description;
 
@@ -262,12 +338,12 @@ VulkanBasicallyEverything create_basically_everything(GLFWwindow *window, VkPhys
     temp_vulkan.framebuffers.resize(vk_image_count);
     for (uint32_t i = 0; i < vk_image_count; i++)
     {
-        VkImageView attachments[] = { temp_vulkan.image_views[i] };
+        VkImageView attachments[] = { temp_vulkan.image_views[i], temp_vulkan.depth_buffer_image_view };
 
         VkFramebufferCreateInfo framebuffer_create_info = {};
         framebuffer_create_info.sType = VK_STRUCTURE_TYPE_FRAMEBUFFER_CREATE_INFO;
         framebuffer_create_info.renderPass = temp_vulkan.render_pass;
-        framebuffer_create_info.attachmentCount = 1;
+        framebuffer_create_info.attachmentCount = array_count(attachments);
         framebuffer_create_info.pAttachments = attachments;
         framebuffer_create_info.width = temp_vulkan.swapchain_extent.width;
         framebuffer_create_info.height = temp_vulkan.swapchain_extent.height;
@@ -703,6 +779,14 @@ VulkanBasicallyEverything create_basically_everything(GLFWwindow *window, VkPhys
     pipeline_color_blend_state_create_info.attachmentCount = 1;
     pipeline_color_blend_state_create_info.pAttachments = &pipeline_color_blend_attachment_state;
 
+    VkPipelineDepthStencilStateCreateInfo pipeline_depth_stencil_state_create_info = {};
+    pipeline_depth_stencil_state_create_info.sType = VK_STRUCTURE_TYPE_PIPELINE_DEPTH_STENCIL_STATE_CREATE_INFO;
+    pipeline_depth_stencil_state_create_info.depthTestEnable = VK_TRUE;
+    pipeline_depth_stencil_state_create_info.depthWriteEnable = VK_TRUE;
+    pipeline_depth_stencil_state_create_info.depthCompareOp = VK_COMPARE_OP_LESS;
+    pipeline_depth_stencil_state_create_info.depthBoundsTestEnable = VK_FALSE;
+    pipeline_depth_stencil_state_create_info.stencilTestEnable = VK_FALSE;
+
     VkPipelineLayoutCreateInfo pipeline_layout_create_info = {};
     pipeline_layout_create_info.sType = VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO;
     pipeline_layout_create_info.setLayoutCount = 1;
@@ -721,6 +805,7 @@ VulkanBasicallyEverything create_basically_everything(GLFWwindow *window, VkPhys
     graphics_pipeline_create_info.pRasterizationState = &pipeline_rasterization_state_create_info;
     graphics_pipeline_create_info.pMultisampleState = &pipeline_multisample_state_create_info;
     graphics_pipeline_create_info.pColorBlendState = &pipeline_color_blend_state_create_info;
+    graphics_pipeline_create_info.pDepthStencilState = &pipeline_depth_stencil_state_create_info;
     graphics_pipeline_create_info.layout = temp_vulkan.pipeline_layout;
     graphics_pipeline_create_info.renderPass = temp_vulkan.render_pass;
     graphics_pipeline_create_info.subpass = 0;
@@ -745,25 +830,31 @@ VulkanBasicallyEverything create_basically_everything(GLFWwindow *window, VkPhys
 
 void destroy_basically_everything(VulkanBasicallyEverything *temp_vulkan, VkDevice vk_device)
 {
-    (void)vkDestroySampler(vk_device, temp_vulkan->texture_sampler, NULL);
+    (void)vkDestroySampler(vk_device, temp_vulkan->texture_sampler, nullptr);
 
-    (void)vkDestroyImage(vk_device, temp_vulkan->texture_image, NULL);
-    (void)vkFreeMemory(vk_device, temp_vulkan->texture_image_memory, NULL);
+    (void)vkDestroyImage(vk_device, temp_vulkan->texture_image, nullptr);
+    (void)vkFreeMemory(vk_device, temp_vulkan->texture_image_memory, nullptr);
     
-    (void)vkDestroyImageView(vk_device, temp_vulkan->texture_image_view, NULL);
+    (void)vkDestroyImageView(vk_device, temp_vulkan->texture_image_view, nullptr);
 
-    (void)vkDestroyDescriptorPool(vk_device, temp_vulkan->descriptor_pool, NULL);
-    (void)vkDestroyDescriptorSetLayout(vk_device, temp_vulkan->descriptor_set_layout, NULL);
+    (void)vkDestroyDescriptorPool(vk_device, temp_vulkan->descriptor_pool, nullptr);
+    (void)vkDestroyDescriptorSetLayout(vk_device, temp_vulkan->descriptor_set_layout, nullptr);
 
-    (void)vkFreeMemory(vk_device, temp_vulkan->uniform_buffer_memory, NULL);
-    (void)vkDestroyBuffer(vk_device, temp_vulkan->uniform_buffer, NULL);
+    (void)vkFreeMemory(vk_device, temp_vulkan->uniform_buffer_memory, nullptr);
+    (void)vkDestroyBuffer(vk_device, temp_vulkan->uniform_buffer, nullptr);
 
     (void)vkDestroyPipeline(vk_device, temp_vulkan->pipeline, nullptr);
     (void)vkDestroyPipelineLayout(vk_device, temp_vulkan->pipeline_layout, nullptr);
+
+    (void)vkDestroyImageView(vk_device, temp_vulkan->depth_buffer_image_view, nullptr);
+    (void)vkDestroyImage(vk_device, temp_vulkan->depth_buffer_image, nullptr);
+    (void)vkFreeMemory(vk_device, temp_vulkan->depth_buffer_memory, nullptr);
+
     for (auto framebuffer: temp_vulkan->framebuffers)
     {
         (void)vkDestroyFramebuffer(vk_device, framebuffer, nullptr);
     }
+
     (void)vkDestroyRenderPass(vk_device, temp_vulkan->render_pass, nullptr);
     for (auto image_view: temp_vulkan->image_views)
     {
@@ -771,8 +862,8 @@ void destroy_basically_everything(VulkanBasicallyEverything *temp_vulkan, VkDevi
     }
     (void)vkDestroySwapchainKHR(vk_device, temp_vulkan->swapchain, nullptr);
 
-    (void)vkDestroySemaphore(vk_device, temp_vulkan->image_available_semaphore, NULL);
-    (void)vkDestroySemaphore(vk_device, temp_vulkan->render_finished_semaphore, NULL);
+    (void)vkDestroySemaphore(vk_device, temp_vulkan->image_available_semaphore, nullptr);
+    (void)vkDestroySemaphore(vk_device, temp_vulkan->render_finished_semaphore, nullptr);
 }
 
 int main()
@@ -1112,8 +1203,9 @@ int main()
         if (result != VK_SUCCESS) fatal("Failed to begin command buffer");
 
         // Doing rendering to a framebuffer -- > need render pass
-        VkClearValue clear_value = {};
-        clear_value.color = { { 1.0f, 0.0f, 0.0f, 1.0f } };
+        VkClearValue clear_values[2] = {};
+        clear_values[0].color = { { 1.0f, 0.0f, 0.0f, 1.0f } };
+        clear_values[1].depthStencil = { 1.0f, 0 };
         VkRect2D render_area = {};
         render_area.offset = (VkOffset2D){0, 0};
         render_area.extent = temp_vulkan.swapchain_extent;
@@ -1122,8 +1214,8 @@ int main()
         render_pass_begin_info.renderPass = temp_vulkan.render_pass;
         render_pass_begin_info.framebuffer = temp_vulkan.framebuffers[next_image_index]; // render pass to the right frame buffer index
         render_pass_begin_info.renderArea = render_area;
-        render_pass_begin_info.clearValueCount = 1;
-        render_pass_begin_info.pClearValues = &clear_value;
+        render_pass_begin_info.clearValueCount = array_count(clear_values);
+        render_pass_begin_info.pClearValues = clear_values;
         (void)vkCmdBeginRenderPass(vk_command_buffer, &render_pass_begin_info, VK_SUBPASS_CONTENTS_INLINE);
 
         // Bind descriptor set for uniform buffer
