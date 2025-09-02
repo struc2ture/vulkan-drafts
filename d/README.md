@@ -19,3 +19,11 @@
     - Enable depth test in pipeline: pass VkPipelineDepthStencilStateCreateInfo in graphics_pipeline_create_info.pDepthStencilState
     - Check depth buffer (disable culling to check)
     - Destroy depth buffer image and view and free memoryon cleanup
+- Camera:
+    - Introduce some lin math: v3 functions, m4_look_at
+    - Camera struct: pos, pitch, yaw
+    - Get view matrix from camera struct using m4_look_at
+    - Camera controls
+    - No subpixel mouse position on macOS in GLFW, no raw mouse on macOS in GLFW either --> switch to orbiting the object for better demo
+    - Don't set initial mvp when creating uniform buffer -- it's updated every frame now
+    - Exponential mouse smoothing

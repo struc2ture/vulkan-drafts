@@ -88,6 +88,8 @@
 
 #define array_count(ARRAY) (sizeof(ARRAY)/sizeof(ARRAY[0]))
 
+#define globvar static
+
 struct Vertex
 {
     float x, y, z;
@@ -126,6 +128,68 @@ struct VulkanBasicallyEverything
     VkSemaphore image_available_semaphore;
     VkSemaphore render_finished_semaphore;
 };
+
+struct Camera
+{
+    v3 pos;
+    f32 pitch_deg;
+    f32 yaw_deg;
+};
+
+globvar Camera g_Camera;
+
+Camera camera_init(v3 pos, v3 target)
+{
+    v3 dir = v3_normalize(v3_sub(target, pos));
+    f32 pitch_rad = asinf(dir.y);
+    f32 yaw_rad = atan2f(dir.z, dir.x);
+    Camera c = {};
+    c.pos = pos;
+    c.pitch_deg = rad_to_deg(pitch_rad);
+    c.yaw_deg = rad_to_deg(yaw_rad);
+    if (c.pitch_deg > 89.9f) c.pitch_deg = 89.9f;
+    else if (c.pitch_deg < -89.9f) c.pitch_deg = -89.9f;
+    return c;
+}
+
+v3 camera_get_dir(const Camera *c)
+{
+    v3 dir;
+    f32 pitch = deg_to_rad(c->pitch_deg);
+    f32 yaw = deg_to_rad(c->yaw_deg);
+    dir.x = cosf(pitch) * cosf(yaw);
+    dir.y = sinf(pitch);
+    dir.z = cosf(pitch) * sinf(yaw);
+    dir = v3_normalize(dir);
+    return dir;
+}
+
+v3 camera_get_right(const Camera *c)
+{
+    v3 dir = camera_get_dir(c);
+    v3 world_up = V3(0.0f, 1.0f, 0.0f);
+    v3 right = v3_normalize(v3_cross(world_up, dir));
+    return right;
+}
+
+v3 camera_get_up(const Camera *c)
+{
+    v3 dir = camera_get_dir(c);
+    v3 world_up = V3(0.0f, 1.0f, 0.0f);
+    v3 right = v3_normalize(v3_cross(world_up, dir));
+    v3 up = v3_cross(dir, right);
+    return up;
+}
+
+m4 camera_get_view(const Camera *c)
+{
+    v3 dir = camera_get_dir(c);
+    v3 world_up = V3(0.0f, 1.0f, 0.0f);
+    v3 right = v3_normalize(v3_cross(world_up, dir));
+    v3 up = v3_cross(dir, right);
+    m4 view = m4_look_at(c->pos, v3_add(c->pos, dir), up);
+    return view;
+}
 
 VkShaderModule create_shader_module(VkDevice device, const char *path)
 {
@@ -357,11 +421,12 @@ VulkanBasicallyEverything create_basically_everything(GLFWwindow *window, VkPhys
     int w, h;
     glfwGetWindowSize(window, &w, &h);
     // m4 proj = m4_proj_ortho(0.0f, w, 0.0f, h, -1.0f, 1.0f);
-    m4 proj = m4_proj_perspective(deg_to_rad(60), (float)w / h, 0.1f, 100.0f);
+    // m4 proj = m4_proj_perspective(deg_to_rad(60), (float)w / h, 0.1f, 100.0f);
     // m4 proj = m4_identity();
-    m4 view = m4_translate(0.0f, 0.0f, -5.0f);
-    m4 mvp = m4_mul(proj, view);
-    VkDeviceSize vk_uniform_buffer_size = sizeof(mvp);
+    // m4 view = m4_translate(0.0f, 0.0f, -5.0f);
+    // m4 view = camera_get_view(&g_Camera);
+    // m4 mvp = m4_mul(proj, view);
+    VkDeviceSize vk_uniform_buffer_size = sizeof(m4);
 
     VkBufferCreateInfo uniform_buffer_create_info = {};
     uniform_buffer_create_info.sType = VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO;
@@ -392,11 +457,11 @@ VulkanBasicallyEverything create_basically_everything(GLFWwindow *window, VkPhys
     if (result != VK_SUCCESS) fatal("Failed to bind memory to uniform buffer");
 
     // Upload data to the uniform buffer
-    void *uniform_data_ptr;
-    result = vkMapMemory(vk_device, temp_vulkan.uniform_buffer_memory, 0, vk_uniform_buffer_size, 0, &uniform_data_ptr);
-    if (result != VK_SUCCESS) fatal("Failed to map uniform buffer memory");
-    memcpy(uniform_data_ptr, &mvp, (size_t)vk_uniform_buffer_size);
-    (void)vkUnmapMemory(vk_device, temp_vulkan.uniform_buffer_memory);
+    // void *uniform_data_ptr;
+    // result = vkMapMemory(vk_device, temp_vulkan.uniform_buffer_memory, 0, vk_uniform_buffer_size, 0, &uniform_data_ptr);
+    // if (result != VK_SUCCESS) fatal("Failed to map uniform buffer memory");
+    // memcpy(uniform_data_ptr, &mvp, (size_t)vk_uniform_buffer_size);
+    // (void)vkUnmapMemory(vk_device, temp_vulkan.uniform_buffer_memory);
 
     // Texture
     int tex_w, tex_h, tex_ch;
@@ -876,6 +941,8 @@ int main()
     glfwWindowHint(GLFW_RESIZABLE, GLFW_TRUE);
     GLFWwindow *window = glfwCreateWindow(width, height, "Vulkan", NULL, NULL);
 
+    glfwSetInputMode(window, GLFW_CURSOR, GLFW_CURSOR_DISABLED);
+
     // Vulkan Instance
     VkApplicationInfo app_info = {};
     app_info.sType = VK_STRUCTURE_TYPE_APPLICATION_INFO;
@@ -962,33 +1029,6 @@ int main()
     (void)vkGetDeviceQueue(vk_device,vk_graphics_queue_family_index, 0, &vk_graphics_queue);
 
     // Vertex buffer
-    #if 0
-    // Ortho quad
-    int w_int, h_int;
-    glfwGetWindowSize(window, &w_int, &h_int);
-    float w = w_int;
-    float h = h_int;
-    float pad = 100.0f;
-    float q_min_x = pad;
-    float q_max_x = w - pad;
-    float q_min_y = pad;
-    float q_max_y = h - pad;
-    
-    const Vertex verts[] = {
-        { q_min_x, q_max_y, 0.0f, 0.0f, 0.7f, 0.6f, 0.5f },
-        { q_max_x, q_max_y, 1.0f, 0.0f, 0.7f, 0.6f, 0.5f },
-        { q_max_x, q_min_y, 1.0f, 1.0f, 0.7f, 0.6f, 0.5f },
-        { q_min_x, q_min_y, 0.0f, 1.0f, 0.7f, 0.6f, 0.5f },
-    };
-
-    const Vertex verts[] = {
-        { -0.5f,  0.5f, -5.0f, 0.0f, 0.0f, 0.7f, 0.6f, 0.5f },
-        {  0.5f,  0.5f, -5.0f, 1.0f, 0.0f, 0.7f, 0.6f, 0.5f },
-        {  0.5f, -0.5f, -5.0f, 1.0f, 1.0f, 0.7f, 0.6f, 0.5f },
-        { -0.5f, -0.5f, -5.0f, 0.0f, 1.0f, 0.7f, 0.6f, 0.5f },
-    };
-    #endif
-
     const Vertex verts[] = {
         // a
         { -0.5f, -0.5f, -0.5f, 0.0f, 0.0f, 0.7f, 0.6f, 0.5f }, // 0
@@ -1133,13 +1173,81 @@ int main()
     result = vkAllocateCommandBuffers(vk_device, &command_buffer_allocate_info, &vk_command_buffer);
     if (result != VK_SUCCESS) fatal("Failed to allocate command buffers");
 
+    g_Camera = camera_init(V3(0.0f, 1.0f, 5.0f), V3(0.0f, 0.0f, 0.0f));
+
     VulkanBasicallyEverything temp_vulkan = create_basically_everything(window, vk_physical_device, vk_surface, vk_device, vk_graphics_queue, vk_command_pool);
 
     bool recreate_everything = false;
 
+    const f32 delta = 1 / 120.0f;
+
     while (!glfwWindowShouldClose(window))
     {
         glfwPollEvents();
+
+        // Update camera based on mouse
+        {
+            static f64 last_mouse_x, last_mouse_y;
+            static f64 mouse_dx_smoothed, mouse_dy_smoothed;
+            static bool first_mouse = true;
+
+            f64 mouse_x, mouse_y;
+            glfwGetCursorPos(window, &mouse_x, &mouse_y);
+
+            if (first_mouse)
+            {
+                last_mouse_x = mouse_x;
+                last_mouse_y = mouse_y;
+                first_mouse = false;
+            }
+
+            f64 mouse_dx = mouse_x - last_mouse_x;
+            f64 mouse_dy = mouse_y - last_mouse_y;
+            last_mouse_x = mouse_x;
+            last_mouse_y = mouse_y;
+
+            const f64 factor = 0.3;
+            mouse_dx_smoothed = factor * mouse_dx_smoothed + (1.0 - factor) * mouse_dx;
+            mouse_dy_smoothed = factor * mouse_dy_smoothed + (1.0 - factor) * mouse_dy;
+
+            // if (mouse_dx != 0.0 || mouse_dy != 0.0)
+            //     trace("mouse_d: %.5f, %.5f", mouse_dx, mouse_dy);
+
+            f32 mouse_sens = 0.2f;
+            // g_Camera.pitch_deg -= mouse_sens * mouse_dy;
+            // g_Camera.yaw_deg += mouse_sens * mouse_dx;
+            g_Camera.pitch_deg -= mouse_sens * mouse_dy_smoothed;
+            g_Camera.yaw_deg += mouse_sens * mouse_dx_smoothed;
+            if (g_Camera.pitch_deg > 89.9f) g_Camera.pitch_deg = 89.9f;
+            else if (g_Camera.pitch_deg < -89.9f) g_Camera.pitch_deg = -89.9f;
+        }
+
+        // Update camera based on keyboard
+        {
+            f32 speed = 1.0f;
+            v3 dir = camera_get_dir(&g_Camera);
+            v3 right = camera_get_right(&g_Camera);
+            v3 up = camera_get_up(&g_Camera);
+            if (glfwGetKey(window, GLFW_KEY_W) == GLFW_PRESS) g_Camera.pos = v3_add(g_Camera.pos, v3_scale(dir, speed * delta));
+            if (glfwGetKey(window, GLFW_KEY_S) == GLFW_PRESS) g_Camera.pos = v3_add(g_Camera.pos, v3_scale(dir, -speed * delta));
+            if (glfwGetKey(window, GLFW_KEY_A) == GLFW_PRESS) g_Camera.pos = v3_add(g_Camera.pos, v3_scale(right, speed * delta));
+            if (glfwGetKey(window, GLFW_KEY_D) == GLFW_PRESS) g_Camera.pos = v3_add(g_Camera.pos, v3_scale(right, -speed * delta));
+            if (glfwGetKey(window, GLFW_KEY_SPACE) == GLFW_PRESS) g_Camera.pos = v3_add(g_Camera.pos, v3_scale(up, speed * delta));
+            if (glfwGetKey(window, GLFW_KEY_LEFT_SHIFT) == GLFW_PRESS) g_Camera.pos = v3_add(g_Camera.pos, v3_scale(up, -speed * delta));
+        }
+
+        // Camera update: orbit
+        // {
+        //     static f32 camera_orbit_angle = 0.0f;
+        //     camera_orbit_angle += delta;
+        //     const f32 radius = 5.0f;
+        //     v3 pos = V3(
+        //         cosf(camera_orbit_angle) * radius,
+        //         1.0f,
+        //         sinf(camera_orbit_angle) * radius
+        //     );
+        //     g_Camera = camera_init(pos, V3(0.0f, 0.0f, 0.0f));
+        // }
 
         if (recreate_everything)
         {
@@ -1150,40 +1258,6 @@ int main()
             recreate_everything = false;
         }
 
-        // Re-upload quad verts
-        #if 0
-        int w_int, h_int;
-        glfwGetWindowSize(window, &w_int, &h_int);
-        float w = w_int;
-        float h = h_int;
-        float pad = 100.0f;
-        float q_min_x = pad;
-        float q_max_x = w - pad;
-        float q_min_y = pad;
-        float q_max_y = h - pad;
-
-        // const Vertex verts[] = {
-        //     { q_min_x, q_max_y, 0.0f, 0.0f, 0.7f, 0.6f, 0.5f },
-        //     { q_max_x, q_max_y, 1.0f, 0.0f, 0.7f, 0.6f, 0.5f },
-        //     { q_max_x, q_min_y, 1.0f, 1.0f, 0.7f, 0.6f, 0.5f },
-        //     { q_min_x, q_min_y, 0.0f, 1.0f, 0.7f, 0.6f, 0.5f },
-        // };
-
-        const Vertex verts[] =
-        {
-            { -0.5f,  0.5f, 0.0f, 0.0f, 0.7f, 0.6f, 0.5f },
-            {  0.5f,  0.5f, 1.0f, 0.0f, 0.7f, 0.6f, 0.5f },
-            { -0.5f,  0.5f, 1.0f, 1.0f, 0.7f, 0.6f, 0.5f },
-            { -0.5f, -0.5f, 0.0f, 1.0f, 0.7f, 0.6f, 0.5f },
-        };
-
-        void *vertex_buffer_data_ptr;
-        result = vkMapMemory(vk_device, vk_vertex_buffer_memory, 0, vertex_buffer_size, 0, &vertex_buffer_data_ptr);
-        if (result != VK_SUCCESS) fatal("Failed to map vertex buffer memory");
-        memcpy(vertex_buffer_data_ptr, verts, (size_t)vertex_buffer_size);
-        (void)vkUnmapMemory(vk_device, vk_vertex_buffer_memory);
-        #endif
-
         // Acquire next image
         uint32_t next_image_index;
         result = vkAcquireNextImageKHR(vk_device, temp_vulkan.swapchain, UINT64_MAX, temp_vulkan.image_available_semaphore, VK_NULL_HANDLE, &next_image_index);
@@ -1193,6 +1267,19 @@ int main()
             continue;
         }
         else if (result != VK_SUCCESS) fatal("Failed to acquire next image");
+
+        // Update MVP UBO
+        int w, h;
+        glfwGetWindowSize(window, &w, &h);
+        m4 proj = m4_proj_perspective(deg_to_rad(60), (float)w / h, 0.1f, 100.0f);
+        m4 view = camera_get_view(&g_Camera);
+        m4 model = m4_identity();
+        // m4 model = m4_translate(1.0f, 0.0f, 0.0f);
+        m4 mvp = m4_mul(proj, m4_mul(view, model));
+        void* data;
+        vkMapMemory(vk_device, temp_vulkan.uniform_buffer_memory, 0, sizeof(mvp), 0, &data);
+        memcpy(data, &mvp, sizeof(mvp));
+        vkUnmapMemory(vk_device, temp_vulkan.uniform_buffer_memory);
 
         // Reset and re-record command buffer
         vkResetCommandBuffer(vk_command_buffer, 0);
