@@ -1,0 +1,3 @@
+- Hardcoded light and phong calculations in shader. Normals
+- Use UBO for proj_view matrix. Model in push constant separately.
+- Apply model without translation to normals. Calculate frag world pos for diffuse lighting
