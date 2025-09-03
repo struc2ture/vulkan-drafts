@@ -852,11 +852,17 @@ VulkanBasicallyEverything create_basically_everything(GLFWwindow *window, VkPhys
     pipeline_depth_stencil_state_create_info.depthBoundsTestEnable = VK_FALSE;
     pipeline_depth_stencil_state_create_info.stencilTestEnable = VK_FALSE;
 
+    VkPushConstantRange mvp_push_constant_range = {};
+    mvp_push_constant_range.stageFlags = VK_SHADER_STAGE_VERTEX_BIT;
+    mvp_push_constant_range.offset = 0;
+    mvp_push_constant_range.size = sizeof(m4);
+
     VkPipelineLayoutCreateInfo pipeline_layout_create_info = {};
     pipeline_layout_create_info.sType = VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO;
     pipeline_layout_create_info.setLayoutCount = 1;
-    // Reference the descriptor set layout
     pipeline_layout_create_info.pSetLayouts = &temp_vulkan.descriptor_set_layout;
+    pipeline_layout_create_info.pushConstantRangeCount = 1;
+    pipeline_layout_create_info.pPushConstantRanges = &mvp_push_constant_range;
     result = vkCreatePipelineLayout(vk_device, &pipeline_layout_create_info, nullptr, &temp_vulkan.pipeline_layout);
     if (result != VK_SUCCESS) fatal("Failed to create pipeline layout");
     
@@ -1276,10 +1282,10 @@ int main()
         m4 model = m4_identity();
         // m4 model = m4_translate(1.0f, 0.0f, 0.0f);
         m4 mvp = m4_mul(proj, m4_mul(view, model));
-        void* data;
-        vkMapMemory(vk_device, temp_vulkan.uniform_buffer_memory, 0, sizeof(mvp), 0, &data);
-        memcpy(data, &mvp, sizeof(mvp));
-        vkUnmapMemory(vk_device, temp_vulkan.uniform_buffer_memory);
+        // void* data;
+        // vkMapMemory(vk_device, temp_vulkan.uniform_buffer_memory, 0, sizeof(mvp), 0, &data);
+        // memcpy(data, &mvp, sizeof(mvp));
+        // vkUnmapMemory(vk_device, temp_vulkan.uniform_buffer_memory);
 
         // Reset and re-record command buffer
         vkResetCommandBuffer(vk_command_buffer, 0);
@@ -1320,8 +1326,9 @@ int main()
         // Bind vertex buffer that contains triangle vertices
         (void)vkCmdBindVertexBuffers(vk_command_buffer, 0, 1, &vk_vertex_buffer, offsets);
         (void)vkCmdBindIndexBuffer(vk_command_buffer, vk_index_buffer, 0, VK_INDEX_TYPE_UINT32);
-        // Draw call for 6 vertices
-        // (void)vkCmdDraw(vk_command_buffer, 6, 1, 0, 0);
+
+        (void)vkCmdPushConstants(vk_command_buffer, temp_vulkan.pipeline_layout, VK_SHADER_STAGE_VERTEX_BIT, 0, sizeof(m4), &mvp);
+
         (void)vkCmdDrawIndexed(vk_command_buffer, index_count, 1, 0, 0, 0);
 
         (void)vkCmdEndRenderPass(vk_command_buffer);
