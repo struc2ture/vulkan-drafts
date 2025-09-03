@@ -53,6 +53,7 @@
  */
 
 #include <cstdio>
+#include <cstdlib>
 #include <vector>
 
 #include <vulkan/vulkan.h>
@@ -137,6 +138,20 @@ struct Camera
 };
 
 globvar Camera g_Camera;
+
+static inline f32 rand_float()
+{
+    f32 v = rand() / (f32)RAND_MAX;
+    return v;
+}
+
+static inline v3 rand_v3(f32 mag)
+{
+    v3 v = V3(rand_float(), rand_float(), rand_float());
+    v = v3_normalize(v);
+    v = v3_scale(v, mag);
+    return v;
+}
 
 Camera camera_init(v3 pos, v3 target)
 {
@@ -1179,7 +1194,7 @@ int main()
     result = vkAllocateCommandBuffers(vk_device, &command_buffer_allocate_info, &vk_command_buffer);
     if (result != VK_SUCCESS) fatal("Failed to allocate command buffers");
 
-    g_Camera = camera_init(V3(0.0f, 1.0f, 5.0f), V3(0.0f, 0.0f, 0.0f));
+    g_Camera = camera_init(V3(0.0f, 1.0f, 10.0f), V3(0.0f, 0.0f, 0.0f));
 
     VulkanBasicallyEverything temp_vulkan = create_basically_everything(window, vk_physical_device, vk_surface, vk_device, vk_graphics_queue, vk_command_pool);
 
@@ -1187,10 +1202,24 @@ int main()
 
     const f32 delta = 1 / 120.0f;
 
+    const int cube_count = 100;
+    m4 cube_transforms[cube_count];
+    for (int i = 0; i < cube_count; i++)
+    {
+        f32 rand_x = rand_float() * 10.0f - 5.0f;
+        f32 rand_y = rand_float() * 10.0f - 5.0f;
+        f32 rand_z = rand_float() * 10.0f - 5.0f;
+        m4 translate = m4_translate(rand_x, rand_y, rand_z);
+        f32 rand_angle = rand_float() * 360.0f;
+        m4 rotate = m4_rotate(deg_to_rad(rand_angle), rand_v3(1.0f));
+        cube_transforms[i] = m4_mul(translate, rotate);
+    }
+
     while (!glfwWindowShouldClose(window))
     {
         glfwPollEvents();
 
+        #if 0
         // Update camera based on mouse
         {
             static f64 last_mouse_x, last_mouse_y;
@@ -1241,19 +1270,20 @@ int main()
             if (glfwGetKey(window, GLFW_KEY_SPACE) == GLFW_PRESS) g_Camera.pos = v3_add(g_Camera.pos, v3_scale(up, speed * delta));
             if (glfwGetKey(window, GLFW_KEY_LEFT_SHIFT) == GLFW_PRESS) g_Camera.pos = v3_add(g_Camera.pos, v3_scale(up, -speed * delta));
         }
-
+        #else
         // Camera update: orbit
-        // {
-        //     static f32 camera_orbit_angle = 0.0f;
-        //     camera_orbit_angle += delta;
-        //     const f32 radius = 5.0f;
-        //     v3 pos = V3(
-        //         cosf(camera_orbit_angle) * radius,
-        //         1.0f,
-        //         sinf(camera_orbit_angle) * radius
-        //     );
-        //     g_Camera = camera_init(pos, V3(0.0f, 0.0f, 0.0f));
-        // }
+        {
+            static f32 camera_orbit_angle = 0.0f;
+            camera_orbit_angle += delta * 0.2f;
+            const f32 radius = 10.0f;
+            v3 pos = V3(
+                cosf(camera_orbit_angle) * radius,
+                1.0f,
+                sinf(camera_orbit_angle) * radius
+            );
+            g_Camera = camera_init(pos, V3(0.0f, 0.0f, 0.0f));
+        }
+        #endif
 
         if (recreate_everything)
         {
@@ -1274,14 +1304,12 @@ int main()
         }
         else if (result != VK_SUCCESS) fatal("Failed to acquire next image");
 
-        // Update MVP UBO
+        // Update projection and view
         int w, h;
         glfwGetWindowSize(window, &w, &h);
         m4 proj = m4_proj_perspective(deg_to_rad(60), (float)w / h, 0.1f, 100.0f);
         m4 view = camera_get_view(&g_Camera);
-        m4 model = m4_identity();
-        // m4 model = m4_translate(1.0f, 0.0f, 0.0f);
-        m4 mvp = m4_mul(proj, m4_mul(view, model));
+        m4 view_proj = m4_mul(proj, view);
         // void* data;
         // vkMapMemory(vk_device, temp_vulkan.uniform_buffer_memory, 0, sizeof(mvp), 0, &data);
         // memcpy(data, &mvp, sizeof(mvp));
@@ -1327,9 +1355,15 @@ int main()
         (void)vkCmdBindVertexBuffers(vk_command_buffer, 0, 1, &vk_vertex_buffer, offsets);
         (void)vkCmdBindIndexBuffer(vk_command_buffer, vk_index_buffer, 0, VK_INDEX_TYPE_UINT32);
 
-        (void)vkCmdPushConstants(vk_command_buffer, temp_vulkan.pipeline_layout, VK_SHADER_STAGE_VERTEX_BIT, 0, sizeof(m4), &mvp);
+        for (int i = 0; i < cube_count; i++)
+        {
+            m4 model = cube_transforms[i];
+            m4 mvp = m4_mul(view_proj, model);
 
-        (void)vkCmdDrawIndexed(vk_command_buffer, index_count, 1, 0, 0, 0);
+            (void)vkCmdPushConstants(vk_command_buffer, temp_vulkan.pipeline_layout, VK_SHADER_STAGE_VERTEX_BIT, 0, sizeof(m4), &mvp);
+
+            (void)vkCmdDrawIndexed(vk_command_buffer, index_count, 1, 0, 0, 0);
+        }
 
         (void)vkCmdEndRenderPass(vk_command_buffer);
         result = vkEndCommandBuffer(vk_command_buffer);
