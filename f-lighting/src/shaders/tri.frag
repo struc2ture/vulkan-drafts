@@ -10,31 +10,31 @@ layout(location = 0) out vec4 outColor;
 layout(std140, set = 0, binding = 0) uniform UBO {
     mat4 proj_view;
     vec3 view_pos;
+    float ambient_strength;
+    vec3 light_color;
+    float specular_strength;
+    vec3 light_pos;
+    float shininess;
 } ubo;
 
 layout(set = 0, binding = 1) uniform sampler2D texSampler;
 
 void main()
 {
-    vec3 lightColor = vec3(0.7, 0.6, 0.4);
-    vec3 lightPos = vec3(0.0, 10.0, 0.0);
-
     // ambient
-    float ambientStrength = 0.3;
-    vec3 ambient = ambientStrength * lightColor;
+    vec3 ambient = ubo.ambient_strength * ubo.light_color;
 
     // diffuse 
     vec3 norm = normalize(fragNormal);
-    vec3 lightDir = normalize(lightPos - fragPos);
-    float diff = max(dot(norm, lightDir), 0.0);
-    vec3 diffuse = diff * lightColor;
+    vec3 light_dir = normalize(ubo.light_pos - fragPos);
+    float diff = max(dot(norm, light_dir), 0.0);
+    vec3 diffuse = diff * ubo.light_color;
 
     // specular
-    float specularStrength = 0.5;
-    vec3 viewDir = normalize(ubo.view_pos - fragPos);
-    vec3 reflectDir = reflect(-lightDir, norm);
-    float spec = pow(max(dot(viewDir, reflectDir), 0.0), 32);
-    vec3 specular = specularStrength * spec * lightColor;
+    vec3 view_dir = normalize(ubo.view_pos - fragPos);
+    vec3 reflect_dir = reflect(-light_dir, norm);
+    float spec = pow(max(dot(view_dir, reflect_dir), 0.0), ubo.shininess);
+    vec3 specular = ubo.specular_strength * spec * ubo.light_color;
 
     vec4 c = vec4(fragColor, 1.0);
     vec4 l = vec4(ambient + diffuse + specular, 1.0);

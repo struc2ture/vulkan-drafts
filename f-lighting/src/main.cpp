@@ -103,7 +103,11 @@ struct UBO_Layout
 {
     m4 proj_view;
     v3 view_pos;
-    f32 pad;
+    f32 ambient_strength; // also padding
+    v3 light_color;
+    f32 specular_strength; // also padding
+    v3 light_pos;
+    f32 shininess; // also padding
 };
 
 struct VulkanBasicallyEverything
@@ -694,7 +698,7 @@ VulkanBasicallyEverything create_basically_everything(GLFWwindow *window, VkPhys
     uniform_buffer_descriptor_set_layout_binding.binding = 0;
     uniform_buffer_descriptor_set_layout_binding.descriptorType = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
     uniform_buffer_descriptor_set_layout_binding.descriptorCount = 1;
-    uniform_buffer_descriptor_set_layout_binding.stageFlags = VK_SHADER_STAGE_VERTEX_BIT;
+    uniform_buffer_descriptor_set_layout_binding.stageFlags = VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT;
     uniform_buffer_descriptor_set_layout_binding.pImmutableSamplers = NULL;
 
     // Binding for texture sampler
@@ -1313,7 +1317,7 @@ int main()
         }
         else if (result != VK_SUCCESS) fatal("Failed to acquire next image");
 
-        // Update projection and view
+        // Update per-frame UBO
         int w, h;
         glfwGetWindowSize(window, &w, &h);
         m4 proj = m4_proj_perspective(deg_to_rad(60), (float)w / h, 0.1f, 100.0f);
@@ -1322,6 +1326,11 @@ int main()
         UBO_Layout ubo_data;
         ubo_data.proj_view = proj_view;
         ubo_data.view_pos = g_Camera.pos;
+        ubo_data.ambient_strength = 0.1f;
+        ubo_data.light_color = V3(1.0f, 1.0f, 1.0f);
+        ubo_data.specular_strength = 0.5f;
+        ubo_data.light_pos = V3(0.0f, 10.0f, 0.0f);
+        ubo_data.shininess = 1024.0f;
         void* data;
         vkMapMemory(vk_device, temp_vulkan.uniform_buffer_memory, 0, sizeof(ubo_data), 0, &data);
         memcpy(data, &ubo_data, sizeof(ubo_data));
