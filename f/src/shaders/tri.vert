@@ -5,8 +5,9 @@ layout(location = 1) in vec3 inNormal;
 layout(location = 2) in vec2 inUV;
 layout(location = 3) in vec3 inColor;
 
-layout(set = 0, binding = 0) uniform UBO {
+layout(std140, set = 0, binding = 0) uniform UBO {
     mat4 proj_view;
+    vec3 view_pos;
 } ubo;
 
 layout(push_constant) uniform Push {

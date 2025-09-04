@@ -99,6 +99,13 @@ struct Vertex
     v3 color;
 };
 
+struct UBO_Layout
+{
+    m4 proj_view;
+    v3 view_pos;
+    f32 pad;
+};
+
 struct VulkanBasicallyEverything
 {
     VkSwapchainKHR swapchain;
@@ -433,16 +440,8 @@ VulkanBasicallyEverything create_basically_everything(GLFWwindow *window, VkPhys
         if (result != VK_SUCCESS) fatal("Failed to create framebuffer");
     }
 
-    // Create uniform buffer for projection
-    int w, h;
-    glfwGetWindowSize(window, &w, &h);
-    // m4 proj = m4_proj_ortho(0.0f, w, 0.0f, h, -1.0f, 1.0f);
-    // m4 proj = m4_proj_perspective(deg_to_rad(60), (float)w / h, 0.1f, 100.0f);
-    // m4 proj = m4_identity();
-    // m4 view = m4_translate(0.0f, 0.0f, -5.0f);
-    // m4 view = camera_get_view(&g_Camera);
-    // m4 mvp = m4_mul(proj, view);
-    VkDeviceSize vk_uniform_buffer_size = sizeof(m4);
+    // Create uniform buffer
+    VkDeviceSize vk_uniform_buffer_size = sizeof(UBO_Layout);
 
     VkBufferCreateInfo uniform_buffer_create_info = {};
     uniform_buffer_create_info.sType = VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO;
@@ -471,13 +470,6 @@ VulkanBasicallyEverything create_basically_everything(GLFWwindow *window, VkPhys
 
     result = vkBindBufferMemory(vk_device, temp_vulkan.uniform_buffer, temp_vulkan.uniform_buffer_memory, 0);
     if (result != VK_SUCCESS) fatal("Failed to bind memory to uniform buffer");
-
-    // Upload data to the uniform buffer
-    // void *uniform_data_ptr;
-    // result = vkMapMemory(vk_device, temp_vulkan.uniform_buffer_memory, 0, vk_uniform_buffer_size, 0, &uniform_data_ptr);
-    // if (result != VK_SUCCESS) fatal("Failed to map uniform buffer memory");
-    // memcpy(uniform_data_ptr, &mvp, (size_t)vk_uniform_buffer_size);
-    // (void)vkUnmapMemory(vk_device, temp_vulkan.uniform_buffer_memory);
 
     // Texture
     int tex_w, tex_h, tex_ch;
@@ -763,7 +755,7 @@ VulkanBasicallyEverything create_basically_everything(GLFWwindow *window, VkPhys
     uniform_buffer_write_descriptor_set.descriptorCount = 1;
     uniform_buffer_write_descriptor_set.pBufferInfo = &uniform_buffer_descriptor_buffer_info;
 
-    vkUpdateDescriptorSets(vk_device, 1, &uniform_buffer_write_descriptor_set, 0, NULL);
+    (void)vkUpdateDescriptorSets(vk_device, 1, &uniform_buffer_write_descriptor_set, 0, NULL);
 
     // Update descriptor sets to point binding 1 to the texture sampler
     VkDescriptorImageInfo texture_sampler_descriptor_image_info = {};
@@ -1327,9 +1319,12 @@ int main()
         m4 proj = m4_proj_perspective(deg_to_rad(60), (float)w / h, 0.1f, 100.0f);
         m4 view = camera_get_view(&g_Camera);
         m4 proj_view = m4_mul(proj, view);
+        UBO_Layout ubo_data;
+        ubo_data.proj_view = proj_view;
+        ubo_data.view_pos = g_Camera.pos;
         void* data;
-        vkMapMemory(vk_device, temp_vulkan.uniform_buffer_memory, 0, sizeof(proj_view), 0, &data);
-        memcpy(data, &proj_view, sizeof(proj_view));
+        vkMapMemory(vk_device, temp_vulkan.uniform_buffer_memory, 0, sizeof(ubo_data), 0, &data);
+        memcpy(data, &ubo_data, sizeof(ubo_data));
         vkUnmapMemory(vk_device, temp_vulkan.uniform_buffer_memory);
 
         // Reset and re-record command buffer
